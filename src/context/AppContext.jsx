@@ -115,7 +115,24 @@ export function AppProvider({ children }) {
   const register = async (name, email, password, phone) => {
     setLoading(true);
     try {
-      const newUser = await registerUserAndCreateTables(name, email, password, phone);
+      // الخطوة 1: حفظ الحساب أولاً في جدول نيون الموحد عبر رابط الـ API الخاص بك
+      const response = await fetch('https://nawh-ai25.vercel.app/api/register-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, email, password, phone }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'فشلت عملية إنشاء الحساب عبر الـ API');
+      }
+
+      // الخطوة 2: بعد نجاح الـ API، نمرر المعرف الراجع لخدمة السيرفر لتهيئة جداول تخزين التطبيق
+      const newUser = await registerUserAndCreateTables(name, email, password, phone, data.userId);
+      
       setUser(newUser);
       setIsAuthenticated(true);
       setIsAdmin(newUser.isAdmin || false);
