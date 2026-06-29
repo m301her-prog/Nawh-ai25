@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { Wallet, ArrowLeft, Eye, EyeOff, User, Mail, Lock, Phone } from 'lucide-react';
+import { neonService } from '../services/neonService.js'; // تم إضافة الاستيراد هنا للربط
 
 /**
  * Authentication Page
@@ -40,7 +41,7 @@ export default function Auth() {
 
       if (formData.password !== formData.confirmPassword) {
         newErrors.confirmPassword = language === 'ar' ? 'كلمتا المرور غير متطابقتين' :
-                                     language === 'fr' ? 'Mots de passe différents' : 'Passwords do not match';
+                                    language === 'fr' ? 'Mots de passe différents' : 'Passwords do not match';
       }
     }
 
@@ -55,9 +56,13 @@ export default function Auth() {
 
     try {
       if (isLogin) {
-        await login(formData.email, formData.password);
+        // الربط: التحقق من بيانات تسجيل الدخول وحفظ الجلسة عبر كود الخدمة
+        const userData = await neonService.loginUser(formData.email, formData.password);
+        await login(formData.email, formData.password); // استدعاء سياق التطبيق الأصلي لتحديث الحالة العالمية
       } else {
-        await register(formData.name, formData.email, formData.password, formData.phone);
+        // الربط: حفظ بيانات المستخدم الجديد في جدول قاعدة البيانات عبر كود الخدمة
+        const newUser = await neonService.createUser(formData.name, formData.email, formData.password, formData.phone);
+        await register(formData.name, formData.email, formData.password, formData.phone); // استدعاء سياق التطبيق الأصلي لتحديث الحالة العالمية
       }
     } catch (error) {
       setErrors({ submit: error.message });
@@ -288,6 +293,7 @@ export default function Auth() {
               <p className="text-gray-500 dark:text-gray-400">
                 {isLogin ? t('noAccount') : t('hasAccount')}
                 <button
+                  type="button"
                   onClick={toggleMode}
                   className="mr-2 font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
                 >
