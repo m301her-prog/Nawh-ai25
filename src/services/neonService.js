@@ -2,38 +2,100 @@
  * Neon PostgreSQL Service for Debts Manager
  * Handles all database operations with dynamic per-user tables
  * Includes Android Capture event triggers for WebView integration
+ * Optimized with CapacitorHttp for native cross-platform compatibility
+ * Hardcoded Back-End API route & Native Local Notifications integrated
  */
 
-import { neon } from '@neondatabase/serverless';
+import { CapacitorHttp } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
-// Neon database connection string - set in .env as VITE_NEON_DATABASE_URL
+// تثبيت رابط الـ API بشكل أساسي لضمان عمل الجداول والاتصال من السيرفر الوسيط
 const getConnectionString = () => {
-  return import.meta.env.VITE_NEON_DATABASE_URL || '';
+  return import.meta.env.VITE_NEON_DATABASE_URL || 'https://nawh-ai25.vercel.app/api/query';
 };
 
 // Check if Neon is configured
 export const isNeonConfigured = () => {
   const url = getConnectionString();
-  return url && url.includes('neon.tech');
+  return url && (url.includes('neon.tech') || url.includes('vercel.app'));
 };
 
 /**
- * Execute SQL query with retry logic and fallback to localStorage
+ * Send Local Notification on Android/iOS for App Events
+ */
+const sendLocalNotification = async (title, body) => {
+  try {
+    // التحقق من الصلاحيات أولاً وطلبها إذا لم تكن مفعلة
+    const permission = await LocalNotifications.checkPermissions();
+    if (permission.display !== 'granted') {
+      await LocalNotifications.requestPermissions();
+    }
+
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          title: title,
+          body: body,
+          id: Math.floor(Math.random() * 100000),
+          schedule: { at: new Date(Date.now() + 500) }, // يظهر بعد نصف ثانية فوراً
+          sound: 'default',
+          actionTypeId: '',
+          extra: null
+        }
+      ]
+    });
+  } catch (error) {
+    console.error('Failed to send native notification:', error);
+  }
+};
+
+/**
+ * Execute SQL query via CapacitorHttp with retry logic and fallback to localStorage
  */
 const executeQuery = async (query, params = []) => {
   const connString = getConnectionString();
 
-  if (!connString || !connString.includes('neon.tech')) {
+  if (!connString) {
     console.warn('Neon not configured, using localStorage fallback');
     return null;
   }
 
   try {
-    const sql = neon(connString);
-    const result = await sql(query, params);
-    return result;
+    let httpUrl = connString;
+    
+    // التوافقية مع الروابط إذا كانت موجهة مباشرة إلى الدالة الوسيطة أو الرابط المباشر
+    if (httpUrl.startsWith('postgres://')) {
+      httpUrl = httpUrl.replace('postgres://', 'https://');
+    } else if (httpUrl.startsWith('postgresql://')) {
+      httpUrl = httpUrl.replace('postgresql://', 'https://');
+    }
+    
+    if (!httpUrl.includes('vercel.app') && !httpUrl.includes('/v1/sql') && !httpUrl.includes('/sql')) {
+      const urlObj = new URL(httpUrl);
+      httpUrl = `https://${urlObj.host}/v1/sql`;
+    }
+
+    const options = {
+      url: httpUrl,
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${connString.includes('@') ? connString.split('@')[0].split(':').pop() : ''}` 
+      },
+      data: {
+        query: query,
+        params: params
+      }
+    };
+
+    const response = await CapacitorHttp.post(options);
+    
+    if (response.status >= 200 && response.status < 300) {
+      return response.data;
+    } else {
+      throw new Error(`Neon HTTP error! status: ${response.status}`);
+    }
   } catch (error) {
-    console.error('Neon query error:', error);
+    console.error('Neon query error via CapacitorHttp:', error);
     throw error;
   }
 };
@@ -41,7 +103,7 @@ const executeQuery = async (query, params = []) => {
 /**
  * Android Capture Event Trigger
  * Sends events to Android WebView when available
- * Also saves to localStorage for offline sync
+ * Also saves to localStorage for offline sync and triggers local native notifications
  */
 export const triggerAndroidCapture = (eventType, data) => {
   const eventData = {
@@ -53,6 +115,33 @@ export const triggerAndroidCapture = (eventType, data) => {
 
   // Save to localStorage for Android Capture access
   saveCaptureEvent(eventData);
+
+  // تفعيل إشعار الأندرويد بناءً على نوع الحدث الحالي تلقائياً
+  let notifTitle = 'تحديث في إدارة الديون';
+  let notifBody = `تم تسجيل حدث جديد: ${eventType}`;
+
+  if (eventType === 'USER_REGISTERED') {
+    notifTitle = 'حساب جديد 🎉';
+    notifBody = `مرحباً بك ${data.name || ''}، تم إنشاء حسابك وجداولك بنجاح.`;
+  } else if (eventType === 'USER_LOGIN') {
+    notifTitle = 'تسجيل دخول ناجح 🔓';
+    notifBody = `تم تسجيل الدخول بالحساب: ${data.email}`;
+  } else if (eventType === 'DEBT_ADDED') {
+    notifTitle = 'إضافة دين جديد ➕';
+    notifBody = `تم تسجيل دين لـ ${data.debt?.personName || 'شخص ما'} بمبلغ ${data.debt?.amount || 0} د.ج.`;
+  } else if (eventType === 'DEBT_UPDATED') {
+    notifTitle = 'تحديث حالة الدين 📝';
+    notifBody = `تم تعديل وتحديث بيانات الدين بنجاح.`;
+  } else if (eventType === 'DEBT_DELETED') {
+    notifTitle = 'حذف دين 🗑️';
+    notifBody = `تم إزالة بيانات الدين من السجلات التابعة لك.`;
+  } else if (eventType === 'DATA_SAVED') {
+    notifTitle = 'حفظ البيانات آلياً 💾';
+    notifBody = `تمت مزامنة التغييرات وحفظها محلياً بأمان.`;
+  }
+
+  // إطلاق الإشعار على الهاتف
+  sendLocalNotification(notifTitle, notifBody);
 
   // Check for Android interface and send capture signal
   if (window.AndroidInterface && typeof window.AndroidInterface.captureEvent === 'function') {
@@ -86,7 +175,6 @@ const saveCaptureEvent = (eventData) => {
   try {
     const captureLog = JSON.parse(localStorage.getItem('captureLog') || '[]');
     captureLog.push(eventData);
-    // Keep last 100 events
     const trimmed = captureLog.slice(-100);
     localStorage.setItem('captureLog', JSON.stringify(trimmed));
   } catch (error) {
@@ -130,7 +218,6 @@ const generateUserId = () => {
  * Hash password (simple implementation - in production use bcrypt on server)
  */
 const hashPassword = (password) => {
-  // Simple hash for demo - use proper hashing in production
   let hash = 0;
   for (let i = 0; i < password.length; i++) {
     const char = password.charCodeAt(i);
@@ -153,9 +240,8 @@ const hashPassword = (password) => {
 export const registerUserAndCreateTables = async (name, email, password, phone) => {
   const users = loadFromLocalStorage('registeredUsers', []);
 
-  // Check if email exists
   if (users.find(u => u.email === email)) {
-    throw new Error('البريد الإلكتروني مسجل مسبقاً / Email déjà utilisé / Email already registered');
+    throw new Error('البريد الإلكتروني مستعمل / Email déjà utilisé / Email already registered');
   }
 
   const userId = generateUserId();
@@ -173,21 +259,17 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
     createdAt: new Date().toISOString()
   };
 
-  // Save user
   users.push(newUser);
   saveToLocalStorage('registeredUsers', users);
 
-  // Initialize empty tables for user
   const userDebtsKey = `user_${userId}_debts`;
   const userActivitiesKey = `user_${userId}_activities`;
 
   saveToLocalStorage(userDebtsKey, []);
   saveToLocalStorage(userActivitiesKey, []);
 
-  // If Neon is configured, create actual SQL tables
   if (isNeonConfigured()) {
     try {
-      // Create user's debts table
       await executeQuery(`
         CREATE TABLE IF NOT EXISTS user_${userId.replace(/-/g, '_')}_debts (
           id VARCHAR(50) PRIMARY KEY,
@@ -205,7 +287,6 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
         )
       `);
 
-      // Create user's activities table
       await executeQuery(`
         CREATE TABLE IF NOT EXISTS user_${userId.replace(/-/g, '_')}_activities (
           id VARCHAR(50) PRIMARY KEY,
@@ -218,14 +299,11 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
       console.log('Neon tables created for user:', userId);
     } catch (error) {
       console.error('Failed to create Neon tables:', error);
-      // Continue with localStorage fallback
     }
   }
 
-  // Log activity
   logUserActivity(userId, 'USER_REGISTERED', { name, email, phone });
 
-  // Trigger Android Capture
   triggerAndroidCapture('USER_REGISTERED', {
     userId,
     name,
@@ -249,10 +327,9 @@ export const authUser = async (email, password) => {
   );
 
   if (!user) {
-    throw new Error('بيانات الدخول غير صحيحة / Identifiants incorrects / Invalid credentials');
+    throw new Error('المعلومات خاطئة / Identifiants incorrects / Invalid credentials');
   }
 
-  // Update last login
   const updatedUsers = users.map(u =>
     u.id === user.id
       ? { ...u, lastLogin: new Date().toISOString() }
@@ -260,10 +337,8 @@ export const authUser = async (email, password) => {
   );
   saveToLocalStorage('registeredUsers', updatedUsers);
 
-  // Log activity
   logUserActivity(user.id, 'USER_LOGIN', { email });
 
-  // Trigger Android Capture
   triggerAndroidCapture('USER_LOGIN', {
     userId: user.id,
     email: user.email,
@@ -308,7 +383,6 @@ export const fetchDebts = (userId) => {
   const userDebtsKey = `user_${userId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
 
-  // Sort by creation date (newest first)
   return debts.sort((a, b) =>
     new Date(b.createdAt) - new Date(a.createdAt)
   );
@@ -323,7 +397,7 @@ export const addDebt = async (userId, debtData) => {
 
   const newDebt = {
     id: 'debt_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 5),
-    type: debtData.type, // 'owed_to_me' or 'i_owe'
+    type: debtData.type,
     personName: debtData.personName,
     phone: debtData.phone || '',
     amount: parseFloat(debtData.amount),
@@ -339,20 +413,17 @@ export const addDebt = async (userId, debtData) => {
   debts.push(newDebt);
   saveToLocalStorage(userDebtsKey, debts);
 
-  // Log activity
   logUserActivity(userId, 'DEBT_ADDED', {
     debtId: newDebt.id,
     personName: newDebt.personName,
     amount: newDebt.amount
   });
 
-  // Trigger Android Capture
   triggerAndroidCapture('DEBT_ADDED', {
     userId,
     debt: newDebt
   });
 
-  // If Neon is configured, sync to cloud
   if (isNeonConfigured()) {
     try {
       const tableName = `user_${userId.replace(/-/g, '_')}_debts`;
@@ -393,13 +464,11 @@ export const updateDebtStatus = async (userId, debtId, updates) => {
   debts[debtIndex] = updatedDebt;
   saveToLocalStorage(userDebtsKey, debts);
 
-  // Log activity
   logUserActivity(userId, 'DEBT_UPDATED', {
     debtId,
     updates: Object.keys(updates).join(', ')
   });
 
-  // Trigger Android Capture
   triggerAndroidCapture('DEBT_UPDATED', {
     userId,
     debtId,
@@ -419,10 +488,8 @@ export const deleteDebt = async (userId, debtId) => {
   const filteredDebts = debts.filter(d => d.id !== debtId);
   saveToLocalStorage(userDebtsKey, filteredDebts);
 
-  // Log activity
   logUserActivity(userId, 'DEBT_DELETED', { debtId });
 
-  // Trigger Android Capture
   triggerAndroidCapture('DEBT_DELETED', {
     userId,
     debtId
@@ -450,7 +517,6 @@ export const logUserActivity = (userId, action, details) => {
   };
 
   activities.unshift(newActivity);
-  // Keep last 100 activities
   saveToLocalStorage(userActivitiesKey, activities.slice(0, 100));
 
   return newActivity;
@@ -536,7 +602,6 @@ export const deleteUser = (userId) => {
   const filtered = users.filter(u => u.id !== userId);
   saveToLocalStorage('registeredUsers', filtered);
 
-  // Also delete user's data
   localStorage.removeItem(`user_${userId}_debts`);
   localStorage.removeItem(`user_${userId}_activities`);
 
