@@ -67,7 +67,7 @@ export default function DebtList() {
   }, [debts, filterType, filterStatus, searchQuery, sortBy]);
 
   const formatCurrency = (amount, currency) => {
-    const locale = language === 'dz' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: currency || 'DZD',
@@ -77,7 +77,7 @@ export default function DebtList() {
   };
 
   const formatDate = (dateString) => {
-    const locale = language === 'dz' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Date(dateString).toLocaleDateString(locale, {
       month: 'short',
       day: 'numeric',
@@ -189,8 +189,8 @@ export default function DebtList() {
             >
               <option value="newest">{t('sortNewest')}</option>
               <option value="oldest">{t('sortOldest')}</option>
-              <option value="amount_desc">{t('sortAmount')} ({language === 'dz' ? 'الأكثر' : language === 'fr' ? 'Plus' : 'Highest'})</option>
-              <option value="amount_asc">{t('sortAmount')} ({language === 'dz' ? 'الأقل' : language === 'fr' ? 'Moins' : 'Lowest'})</option>
+              <option value="amount_desc">{t('sortAmount')} ({language === 'ar' ? 'الأكثر' : language === 'fr' ? 'Plus' : 'Highest'})</option>
+              <option value="amount_asc">{t('sortAmount')} ({language === 'ar' ? 'الأقل' : language === 'fr' ? 'Moins' : 'Lowest'})</option>
               <option value="due_date">{t('sortDueDate')}</option>
             </select>
           </div>
@@ -219,7 +219,7 @@ export default function DebtList() {
       {searchQuery || filterType !== 'all' || filterStatus !== 'all' ? (
         <div className="px-4 mb-3">
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {filteredDebts.length} {language === 'dz' ? 'نتيجة' : language === 'fr' ? 'résultats' : 'results'}
+            {filteredDebts.length} {language === 'ar' ? 'نتيجة' : language === 'fr' ? 'résultats' : 'results'}
           </p>
         </div>
       ) : null}
@@ -328,8 +328,8 @@ export default function DebtList() {
           </h3>
           <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-sm mx-auto">
             {searchQuery || filterType !== 'all' || filterStatus !== 'all'
-              ? (language === 'dz' ? 'ما كاين حتى نتيجة' : language === 'fr' ? 'Aucun résultat' : 'No results found')
-              : (language === 'dz' ? 'أضيف أول دين تاعك' : language === 'fr' ? 'Ajoutez votre première dette' : 'Add your first debt')}
+              ? (language === 'ar' ? 'لا توجد نتائج' : language === 'fr' ? 'Aucun résultat' : 'No results found')
+              : (language === 'ar' ? 'أضف أول دين لك' : language === 'fr' ? 'Ajoutez votre première dette' : 'Add your first debt')}
           </p>
           <button
             onClick={() => navigate('/debts/add')}

@@ -2,10 +2,9 @@
  * Neon PostgreSQL Service for Debts Manager
  * Handles all database operations with dynamic per-user tables
  * Includes Android Capture event triggers for WebView integration
- * Optimized with CapacitorHttp for native cross-platform compatibility
  */
 
-import { CapacitorHttp } from '@capacitor/core';
+import { neon } from '@neondatabase/serverless';
 
 // Neon database connection string - set in .env as VITE_NEON_DATABASE_URL
 const getConnectionString = () => {
@@ -19,7 +18,7 @@ export const isNeonConfigured = () => {
 };
 
 /**
- * Execute SQL query via CapacitorHttp with retry logic and fallback to localStorage
+ * Execute SQL query with retry logic and fallback to localStorage
  */
 const executeQuery = async (query, params = []) => {
   const connString = getConnectionString();
@@ -30,44 +29,11 @@ const executeQuery = async (query, params = []) => {
   }
 
   try {
-    // تشكيل الرابط للاتصال بـ Neon HTTP API
-    // نقوم باستبدال بروتوكول postgres:// بـ https:// إذا كان موجوداً للتعامل مع النفق الذكي
-    let httpUrl = connString;
-    if (httpUrl.startsWith('postgres://')) {
-      httpUrl = httpUrl.replace('postgres://', 'https://');
-    } else if (httpUrl.startsWith('postgresql://')) {
-      httpUrl = httpUrl.replace('postgresql://', 'https://');
-    }
-    
-    // إذا كان الرابط لا يحتوي على مسار الاستعلام الافتراضي لنظام الـ HTTP في نيوم، نقوم بإضافته
-    if (!httpUrl.includes('/v1/sql') && !httpUrl.includes('/sql')) {
-      // تنظيف الرابط وإضافة مسار الـ SQL API الخاص بـ Neon
-      const urlObj = new URL(httpUrl);
-      httpUrl = `https://${urlObj.host}/v1/sql`;
-    }
-
-    const options = {
-      url: httpUrl,
-      headers: { 
-        'Content-Type': 'application/json',
-        // في بعض إعدادات Neon HTTP API يتم تمرير الاتصال في الهيدر إذا لم يكن مدمجاً بالرابط
-        'Authorization': `Bearer ${connString.split('@')[0].split(':').pop()}` 
-      },
-      data: {
-        query: query,
-        params: params
-      }
-    };
-
-    const response = await CapacitorHttp.post(options);
-    
-    if (response.status >= 200 && response.status < 300) {
-      return response.data;
-    } else {
-      throw new Error(`Neon HTTP error! status: ${response.status}`);
-    }
+    const sql = neon(connString);
+    const result = await sql(query, params);
+    return result;
   } catch (error) {
-    console.error('Neon query error via CapacitorHttp:', error);
+    console.error('Neon query error:', error);
     throw error;
   }
 };
@@ -164,6 +130,7 @@ const generateUserId = () => {
  * Hash password (simple implementation - in production use bcrypt on server)
  */
 const hashPassword = (password) => {
+  // Simple hash for demo - use proper hashing in production
   let hash = 0;
   for (let i = 0; i < password.length; i++) {
     const char = password.charCodeAt(i);
@@ -188,7 +155,7 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
 
   // Check if email exists
   if (users.find(u => u.email === email)) {
-    throw new Error('البريد الإلكتروني مستعمل / Email déjà utilisé / Email already registered');
+    throw new Error('البريد الإلكتروني مسجل مسبقاً / Email déjà utilisé / Email already registered');
   }
 
   const userId = generateUserId();
@@ -282,7 +249,7 @@ export const authUser = async (email, password) => {
   );
 
   if (!user) {
-    throw new Error('المعلومات خاطئة / Identifiants incorrects / Invalid credentials');
+    throw new Error('بيانات الدخول غير صحيحة / Identifiants incorrects / Invalid credentials');
   }
 
   // Update last login

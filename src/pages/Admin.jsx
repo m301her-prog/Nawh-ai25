@@ -52,7 +52,7 @@ export default function Admin() {
   const activeUsers = users.filter(u => u.active).length;
 
   const formatDate = (dateString) => {
-    const locale = language === 'dz' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Date(dateString).toLocaleDateString(locale, {
       year: 'numeric',
       month: 'short',
@@ -65,8 +65,8 @@ export default function Admin() {
       await toggleUserStatus(userId, !currentStatus);
       showNotification(
         currentStatus
-          ? (language === 'dz' ? 'تم تعطيل المستخدم' : language === 'fr' ? 'Utilisateur désactivé' : 'User deactivated')
-          : (language === 'dz' ? 'تم تفعيل المستخدم' : language === 'fr' ? 'Utilisateur activé' : 'User activated'),
+          ? (language === 'ar' ? 'تم تعطيل المستخدم' : language === 'fr' ? 'Utilisateur désactivé' : 'User deactivated')
+          : (language === 'ar' ? 'تم تفعيل المستخدم' : language === 'fr' ? 'Utilisateur activé' : 'User activated'),
         'success'
       );
     } catch (error) {
@@ -76,7 +76,7 @@ export default function Admin() {
 
   const handleDeleteUser = async (userId, userName) => {
     const confirmed = window.confirm(
-      language === 'dz' ? `متأكد تبي تمحي ${userName}؟`
+      language === 'ar' ? `هل أنت متأكد من حذف ${userName}؟`
       : language === 'fr' ? `Supprimer ${userName} ?`
       : `Delete ${userName}?`
     );
@@ -85,7 +85,7 @@ export default function Admin() {
       try {
         await deleteUser(userId);
         showNotification(
-          language === 'dz' ? 'تم حذف المستخدم'
+          language === 'ar' ? 'تم حذف المستخدم'
           : language === 'fr' ? 'Utilisateur supprimé'
           : 'User deleted',
           'success'
@@ -167,7 +167,7 @@ export default function Admin() {
               onClick={() => fetchUsers()}
               className="text-sm text-purple-500 hover:underline"
             >
-              {language === 'dz' ? 'حدث' : language === 'fr' ? 'Actualiser' : 'Refresh'}
+              {language === 'ar' ? 'حدث' : language === 'fr' ? 'Actualiser' : 'Refresh'}
             </button>
           </div>
 
@@ -204,7 +204,7 @@ export default function Admin() {
                         )}
                         {!u.active && (
                           <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-500">
-                            {language === 'dz' ? 'معطل' : language === 'fr' ? 'Inactif' : 'Inactive'}
+                            {language === 'ar' ? 'معطل' : language === 'fr' ? 'Inactif' : 'Inactive'}
                           </span>
                         )}
                       </div>
@@ -269,7 +269,7 @@ export default function Admin() {
       <div className="text-center text-sm text-gray-400 dark:text-gray-500 mt-6">
         <p>Admin Panel v1.0.0</p>
         <p className="mt-1">
-          {language === 'dz' ? 'إدارة مدير الديون' : language === 'fr' ? 'Gestion des dettes' : 'Debts Manager Admin'}
+          {language === 'ar' ? 'إدارة مدير الديون' : language === 'fr' ? 'Gestion des dettes' : 'Debts Manager Admin'}
         </p>
       </div>
     </div>

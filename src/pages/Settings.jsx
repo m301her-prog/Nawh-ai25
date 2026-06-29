@@ -46,7 +46,7 @@ export default function Settings() {
         setNotificationsEnabled(true);
         showNotification(t('enableNotifications'), 'success');
       } else {
-        showNotification(language === 'dz' ? 'ما قدرناش نفعّلو الإشعارات' :
+        showNotification(language === 'ar' ? 'ما قدرناش نفعّلو الإشعارات' :
                         language === 'fr' ? 'Autorisation refusée' : 'Permission denied', 'error');
       }
     } else {
@@ -60,7 +60,7 @@ export default function Settings() {
   };
 
   const languages = [
-    { code: 'dz', name: language === 'dz' ? 'الجزائرية (الدارجة)' : 'Algerian (Darija)', flag: '🇩🇿', subtitle: language === 'dz' ? 'واش سالوني!' : 'Wach salooni!' },
+    { code: 'ar', name: language === 'ar' ? 'العربية' : 'Arabic', flag: '🇸🇦', subtitle: language === 'ar' ? 'مرحباً بك!' : 'Marhaba!' },
     { code: 'fr', name: t('french'), flag: '🇫🇷', subtitle: 'Bonjour!' },
     { code: 'en', name: t('english'), flag: '🇬🇧', subtitle: 'Hello!' }
   ];
@@ -129,8 +129,8 @@ export default function Settings() {
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {darkMode
-                  ? (language === 'dz' ? 'وضع الليل' : language === 'fr' ? 'Mode nuit' : 'Night mode')
-                  : (language === 'dz' ? 'وضع النهار' : language === 'fr' ? 'Mode jour' : 'Day mode')}
+                  ? (language === 'ar' ? 'الوضع الداكن' : language === 'fr' ? 'Mode nuit' : 'Night mode')
+                  : (language === 'ar' ? 'الوضع الفاتح' : language === 'fr' ? 'Mode jour' : 'Day mode')}
               </p>
             </div>
             <div className={`w-14 h-8 rounded-full transition-colors ${
@@ -205,8 +205,8 @@ export default function Settings() {
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {notificationsEnabled
-                  ? (language === 'dz' ? 'مفعّل' : language === 'fr' ? 'Activé' : 'Enabled')
-                  : (language === 'dz' ? 'معطّل' : language === 'fr' ? 'Désactivé' : 'Disabled')}
+                  ? (language === 'ar' ? 'مفعّل' : language === 'fr' ? 'Activé' : 'Enabled')
+                  : (language === 'ar' ? 'معطّل' : language === 'fr' ? 'Désactivé' : 'Disabled')}
               </p>
             </div>
             <button
@@ -236,8 +236,8 @@ export default function Settings() {
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 {whatsappEnabled
-                  ? (language === 'dz' ? 'مفعّل' : language === 'fr' ? 'Activé' : 'Enabled')
-                  : (language === 'dz' ? 'معطّل' : language === 'fr' ? 'Désactivé' : 'Disabled')}
+                  ? (language === 'ar' ? 'مفعّل' : language === 'fr' ? 'Activé' : 'Enabled')
+                  : (language === 'ar' ? 'معطّل' : language === 'fr' ? 'Désactivé' : 'Disabled')}
               </p>
             </div>
             <button
@@ -257,7 +257,7 @@ export default function Settings() {
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
           <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
             <h3 className="font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">
-              {language === 'dz' ? 'التطبيق' : language === 'fr' ? 'Application' : 'Application'}
+              {language === 'ar' ? 'التطبيق' : language === 'fr' ? 'Application' : 'Application'}
             </h3>
           </div>
 

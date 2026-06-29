@@ -4,7 +4,7 @@ import { Wallet, ArrowLeft, Eye, EyeOff, User, Mail, Lock, Phone } from 'lucide-
 
 /**
  * Authentication Page
- * Handles both login and registration with Algerian Dialect, French, and English
+ * Handles both login and registration with Arabic, French, and English
  */
 export default function Auth() {
   const { t, login, register, loading, showNotification, language } = useApp();
@@ -23,23 +23,23 @@ export default function Auth() {
     const newErrors = {};
 
     if (!formData.email || !formData.email.includes('@')) {
-      newErrors.email = language === 'dz' ? 'البريد ما صحيحش' :
+      newErrors.email = language === 'ar' ? 'البريد الإلكتروني غير صالح' :
                         language === 'fr' ? 'Email invalide' : 'Invalid email';
     }
 
     if (!formData.password || formData.password.length < 4) {
-      newErrors.password = language === 'dz' ? 'الكود السري قصير بزاف' :
+      newErrors.password = language === 'ar' ? 'كلمة المرور قصيرة جداً' :
                            language === 'fr' ? 'Mot de passe trop court' : 'Password too short';
     }
 
     if (!isLogin) {
       if (!formData.name) {
-        newErrors.name = language === 'dz' ? 'الاسم واجب' :
+        newErrors.name = language === 'ar' ? 'الاسم مطلوب' :
                          language === 'fr' ? 'Nom requis' : 'Name required';
       }
 
       if (formData.password !== formData.confirmPassword) {
-        newErrors.confirmPassword = language === 'dz' ? 'الكود السري ماتطابقش' :
+        newErrors.confirmPassword = language === 'ar' ? 'كلمتا المرور غير متطابقتين' :
                                      language === 'fr' ? 'Mots de passe différents' : 'Passwords do not match';
       }
     }
@@ -100,7 +100,7 @@ export default function Auth() {
             <Wallet className="w-12 h-12 text-white" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            {language === 'dz' ? 'مدير الديون' : language === 'fr' ? 'Gestionnaire de Dettes' : 'Debts Manager'}
+            {t('appName')}
           </h1>
           <p className="text-gray-600 dark:text-gray-400 text-lg">
             {getGreeting()}
@@ -154,7 +154,7 @@ export default function Auth() {
                       ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
                       : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
                   } text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all`}
-                  placeholder={language === 'dz' ? 'اسمك' : language === 'fr' ? 'Votre nom' : 'Your name'}
+                  placeholder={language === 'ar' ? 'اسمك' : language === 'fr' ? 'Votre nom' : 'Your name'}
                 />
                 {errors.name && (
                   <p className="mt-2 text-sm text-red-500 dark:text-red-400">{errors.name}</p>
@@ -197,7 +197,7 @@ export default function Auth() {
                   value={formData.phone}
                   onChange={(e) => handleChange('phone', e.target.value)}
                   className="w-full px-4 py-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-                  placeholder={language === 'dz' ? 'رقم الهاتف (اختياري)' : '+213...'}
+                  placeholder={language === 'ar' ? 'رقم الهاتف (اختياري)' : '+213...'}
                   dir="ltr"
                 />
               </div>
@@ -219,7 +219,7 @@ export default function Auth() {
                       ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
                       : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
                   } text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all`}
-                  placeholder={language === 'dz' ? 'كود سري قوي' : '••••••••'}
+                  placeholder={language === 'ar' ? 'كلمة مرور قوية' : '••••••••'}
                   dir="ltr"
                 />
                 <button
@@ -300,7 +300,7 @@ export default function Auth() {
 
         {/* Demo credentials hint */}
         <p className="text-center mt-6 text-sm text-gray-500 dark:text-gray-400">
-          {language === 'dz' ? 'تجريب: admin@debts.dz / admin123' :
+          {language === 'ar' ? 'للتجربة: admin@debts.dz / admin123' :
            language === 'fr' ? 'Démo: admin@debts.dz / admin123' :
            'Demo: admin@debts.dz / admin123'}
         </p>

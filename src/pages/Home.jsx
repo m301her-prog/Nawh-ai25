@@ -79,7 +79,7 @@ export default function Home() {
     .slice(0, 5);
 
   const formatCurrency = (amount, currency) => {
-    const locale = language === 'dz' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: currency || 'DZD',
@@ -89,7 +89,7 @@ export default function Home() {
   };
 
   const formatDate = (dateString) => {
-    const locale = language === 'dz' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Date(dateString).toLocaleDateString(locale, {
       month: 'short',
       day: 'numeric'
@@ -127,7 +127,7 @@ export default function Home() {
               {user?.name || user?.email?.split('@')[0]}
             </h1>
             <p className="text-emerald-100 text-sm mt-1">
-              {language === 'dz' ? 'واش سالوني؟' : ''}
+              {language === 'ar' ? 'كيف حالك اليوم؟' : ''}
             </p>
           </div>
 
@@ -236,7 +236,7 @@ export default function Home() {
       {/* Quick Actions */}
       <div className="px-4 mb-6">
         <h2 className="text-sm font-bold text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-wider">
-          {language === 'dz' ? 'حركات سريعة' : language === 'fr' ? 'Actions rapides' : 'Quick Actions'}
+          {t('quickActions')}
         </h2>
         <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
           {/* Add Debt Button */}
@@ -304,7 +304,7 @@ export default function Home() {
           <div className="flex items-center justify-between mb-3">
             <h2 className="flex items-center gap-2 text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               <Calendar className="w-4 h-4" />
-              {language === 'dz' ? 'المواعيد القريبة' : language === 'fr' ? 'Échéances proches' : 'Upcoming'}
+              {language === 'ar' ? 'المواعيد القريبة' : language === 'fr' ? 'Échéances proches' : 'Upcoming'}
             </h2>
             <button
               onClick={() => navigate('/debts')}
@@ -351,7 +351,7 @@ export default function Home() {
                       {formatDate(debt.dueDate)}
                       {isOverdue && (
                         <span className="text-red-500 ml-2">
-                          ({Math.abs(daysUntil)} {language === 'dz' ? 'يوم متأخر' : language === 'fr' ? 'jours de retard' : 'days overdue'})
+                          ({Math.abs(daysUntil)} {language === 'ar' ? 'يوم متأخر' : language === 'fr' ? 'jours de retard' : 'days overdue'})
                         </span>
                       )}
                       {!isOverdue && daysUntil === 0 && (
@@ -443,7 +443,7 @@ export default function Home() {
             {t('noDebts')}
           </h3>
           <p className="text-gray-500 dark:text-gray-400 mb-8 max-w-sm mx-auto">
-            {language === 'dz' ? 'مالك سالي، ما عندكش ديون! أضيف شوية وخلص' :
+            {language === 'ar' ? 'لا توجد ديون حالياً. أضف ديناً جديداً للبدء' :
              language === 'fr' ? 'Bravo ! Ajoutez une dette pour commencer' :
              'Clean slate! Add a debt to get started'}
           </p>

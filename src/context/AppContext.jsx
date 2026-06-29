@@ -42,7 +42,7 @@ export function AppProvider({ children }) {
     return loadFromLocalStorage('darkMode', false);
   });
   const [language, setLanguage] = useState(() => {
-    return loadFromLocalStorage('language', 'dz');
+    return loadFromLocalStorage('language', 'ar');
   });
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState(null);
@@ -82,8 +82,8 @@ export function AppProvider({ children }) {
 
   useEffect(() => {
     saveToLocalStorage('language', language);
-    document.documentElement.lang = language === 'dz' ? 'ar' : language;
-    document.documentElement.dir = language === 'dz' ? 'rtl' : 'ltr';
+    document.documentElement.lang = language === 'ar' ? 'ar' : language;
+    document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
   }, [language]);
 
   useEffect(() => {

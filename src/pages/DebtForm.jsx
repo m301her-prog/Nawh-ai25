@@ -65,17 +65,17 @@ export default function DebtForm() {
     const newErrors = {};
 
     if (!formData.personName.trim()) {
-      newErrors.personName = language === 'dz' ? 'الاسم واجب' :
+      newErrors.personName = language === 'ar' ? 'الاسم مطلوب' :
                               language === 'fr' ? 'Le nom est requis' : 'Name is required';
     }
 
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
-      newErrors.amount = language === 'dz' ? 'المبلغ ما صالحش' :
+      newErrors.amount = language === 'ar' ? 'المبلغ غير صالح' :
                           language === 'fr' ? 'Montant invalide' : 'Invalid amount';
     }
 
     if (!formData.dueDate) {
-      newErrors.dueDate = language === 'dz' ? 'التاريخ واجب' :
+      newErrors.dueDate = language === 'ar' ? 'التاريخ مطلوب' :
                            language === 'fr' ? 'Date requise' : 'Date is required';
     }
 
@@ -173,7 +173,7 @@ export default function DebtForm() {
                   ? 'text-emerald-600 dark:text-emerald-400'
                   : 'text-gray-600 dark:text-gray-400'
               }`}>
-                {language === 'dz' ? 'لي - الناس اللي مسكاني' : t('owedToMe')}
+                {language === 'ar' ? 'المستحق لي' : t('owedToMe')}
               </span>
             </button>
 
@@ -201,7 +201,7 @@ export default function DebtForm() {
                   ? 'text-red-600 dark:text-red-400'
                   : 'text-gray-600 dark:text-gray-400'
               }`}>
-                {language === 'dz' ? 'عليا - الناس اللي مسكاهم' : t('iOwe')}
+                {language === 'ar' ? 'المتوجب عليّ' : t('iOwe')}
               </span>
             </button>
           </div>
@@ -223,7 +223,7 @@ export default function DebtForm() {
                 ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
                 : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
             } text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition placeholder-gray-400`}
-            placeholder={language === 'dz' ? 'اسم الشخص اللي عندك معاه حساب' : language === 'fr' ? 'Nom de la personne' : 'Person name'}
+            placeholder={language === 'ar' ? 'اسم الشخص' : language === 'fr' ? 'Nom de la personne' : 'Person name'}
           />
           {errors.personName && (
             <p className="mt-2 text-sm text-red-500 font-medium">{errors.personName}</p>
@@ -235,14 +235,14 @@ export default function DebtForm() {
           <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
             <Phone className="w-4 h-4" />
             {t('phone')}
-            <span className="text-xs text-gray-400 font-normal">({language === 'dz' ? 'اختياري - للواتساب' : language === 'fr' ? 'optionnel' : 'optional'})</span>
+            <span className="text-xs text-gray-400 font-normal">({language === 'ar' ? 'اختياري - للواتساب' : language === 'fr' ? 'optionnel' : 'optional'})</span>
           </label>
           <input
             type="tel"
             value={formData.phone}
             onChange={(e) => handleChange('phone', e.target.value)}
             className="w-full px-4 py-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition placeholder-gray-400"
-            placeholder={language === 'dz' ? 'مثال: +213555123456' : '+213...'}
+            placeholder={language === 'ar' ? 'مثال: +213555123456' : '+213...'}
             dir="ltr"
           />
         </div>
@@ -330,14 +330,14 @@ export default function DebtForm() {
           <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
             <FileText className="w-4 h-4" />
             {t('notes')}
-            <span className="text-xs text-gray-400 font-normal">({language === 'dz' ? 'اختياري' : language === 'fr' ? 'optionnel' : 'optional'})</span>
+            <span className="text-xs text-gray-400 font-normal">({language === 'ar' ? 'اختياري' : language === 'fr' ? 'optionnel' : 'optional'})</span>
           </label>
           <textarea
             value={formData.notes}
             onChange={(e) => handleChange('notes', e.target.value)}
             className="w-full px-4 py-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none placeholder-gray-400"
             rows={4}
-            placeholder={language === 'dz' ? 'أي ملاحظة... مثلاً: شريت منو حاجة...' : language === 'fr' ? 'Remarques...' : 'Any notes...'}
+            placeholder={language === 'ar' ? 'أي ملاحظات إضافية...' : language === 'fr' ? 'Remarques...' : 'Any notes...'}
           />
         </div>
 

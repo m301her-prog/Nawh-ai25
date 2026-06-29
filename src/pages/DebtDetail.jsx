@@ -49,7 +49,7 @@ export default function DebtDetail() {
   }
 
   const formatCurrency = (amount, currency) => {
-    const locale = language === 'dz' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Intl.NumberFormat(locale, {
       style: 'currency',
       currency: currency || 'DZD',
@@ -59,7 +59,7 @@ export default function DebtDetail() {
   };
 
   const formatDate = (dateString) => {
-    const locale = language === 'dz' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Date(dateString).toLocaleDateString(locale, {
       weekday: 'long',
       year: 'numeric',
@@ -94,7 +94,7 @@ export default function DebtDetail() {
   const handleCopy = () => {
     const text = `${t('personName')}: ${debt.personName}\n${t('amount')}: ${formatCurrency(debt.amount, debt.currency)}\n${t('dueDate')}: ${formatDate(debt.dueDate)}\n${t('status')}: ${debt.status === 'paid' ? t('paid') : t('pending')}${debt.notes ? '\n' + t('notes') + ': ' + debt.notes : ''}`;
     navigator.clipboard.writeText(text);
-    showNotification(language === 'dz' ? 'تما نسخ' : language === 'fr' ? 'Copié !' : 'Copied!', 'success');
+    showNotification(language === 'ar' ? 'تما نسخ' : language === 'fr' ? 'Copié !' : 'Copied!', 'success');
   };
 
   const getStatusIcon = () => {
@@ -200,8 +200,8 @@ export default function DebtDetail() {
                 </p>
                 <p className="text-xs font-medium">
                   {isOverdue
-                    ? (language === 'dz' ? 'يوم متأخر' : language === 'fr' ? 'jours de retard' : 'days overdue')
-                    : (language === 'dz' ? 'يوم متبقي' : language === 'fr' ? 'jours restants' : 'days left')}
+                    ? (language === 'ar' ? 'يوم متأخر' : language === 'fr' ? 'jours de retard' : 'days overdue')
+                    : (language === 'ar' ? 'يوم متبقي' : language === 'fr' ? 'jours restants' : 'days left')}
                 </p>
               </div>
             )}
@@ -259,7 +259,7 @@ export default function DebtDetail() {
           className="w-full py-3 rounded-xl border-2 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition flex items-center justify-center gap-2"
         >
           <Copy className="w-5 h-5" />
-          {language === 'dz' ? 'انسخ التفاصيل' : language === 'fr' ? 'Copier les détails' : 'Copy Details'}
+          {language === 'ar' ? 'انسخ التفاصيل' : language === 'fr' ? 'Copier les détails' : 'Copy Details'}
         </button>
       </div>
 
