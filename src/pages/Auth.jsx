@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { Wallet, ArrowLeft, Eye, EyeOff, User, Mail, Lock, Phone } from 'lucide-react';
 import { neonService } from '../services/neonService.js'; // تم إضافة الاستيراد هنا للربط
+import { CapacitorHttp } from '@capacitor/core'; // استيراد CapacitorHttp للاتصال الخارجي الموثوق
 
 /**
  * Authentication Page
@@ -60,6 +61,23 @@ export default function Auth() {
         const userData = await neonService.loginUser(formData.email, formData.password);
         await login(formData.email, formData.password); // استدعاء سياق التطبيق الأصلي لتحديث الحالة العالمية
       } else {
+        // إرسال البيانات وحفظها عبر رابط الـ API الخارجي باستخدام CapacitorHttp
+        const response = await CapacitorHttp.post({
+          url: 'https://nawh-ai25.vercel.app/register-user',
+          headers: { 'Content-Type': 'application/json' },
+          data: {
+            name: formData.name,
+            email: formData.email,
+            password: formData.password,
+            phone: formData.phone
+          }
+        });
+
+        // التحقق من نجاح العملية قبل الانتقال للخطوة التالية
+        if (response.status !== 200 && response.status !== 201) {
+          throw new Error(response.data?.error || 'Failed to register user via API');
+        }
+
         // الربط: حفظ بيانات المستخدم الجديد في جدول قاعدة البيانات عبر كود الخدمة
         const newUser = await neonService.createUser(formData.name, formData.email, formData.password, formData.phone);
         await register(formData.name, formData.email, formData.password, formData.phone); // استدعاء سياق التطبيق الأصلي لتحديث الحالة العالمية
