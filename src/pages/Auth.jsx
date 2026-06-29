@@ -61,9 +61,9 @@ export default function Auth() {
         const userData = await neonService.loginUser(formData.email, formData.password);
         await login(formData.email, formData.password); // استدعاء سياق التطبيق الأصلي لتحديث الحالة العالمية
       } else {
-        // إرسال البيانات وحفظها عبر رابط الـ API الخارجي باستخدام CapacitorHttp
+        // إرسال البيانات وحفظها عبر رابط الـ API الخارجي المحدث باستخدام CapacitorHttp
         const response = await CapacitorHttp.post({
-          url: 'https://nawh-ai25.vercel.app/register-user',
+          url: 'https://nawh-ai25.vercel.app/api/register-user',
           headers: { 'Content-Type': 'application/json' },
           data: {
             name: formData.name,
