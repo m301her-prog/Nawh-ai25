@@ -1,7 +1,20 @@
-import { neon } from '@neondatabase/serverless';
+import pg from 'pg';
+const { Pool } = pg;
+
+// إنشاء اتصال الـ Pool خارج الدالة لإعادة استخدامه وتسريع الطلبات (Connection Pooling)
+let pool;
+
+if (!pool && process.env.DATABASE_URL) {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+      rejectUnauthorized: false // مطلوب لتأمين الاتصال بقواعد البيانات السحابية مثل Neon
+    }
+  });
+}
 
 export default async function handler(req, res) {
-  // 1. إعدادات الـ CORS لتأمين اتصال الهواتف الذكية والتطبيقات بالـ API
+  // 1. إعدادات الـ CORS لتأمين اتصال التطبيقات والـ Mobile بالـ API
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -27,8 +40,8 @@ export default async function handler(req, res) {
     });
   }
 
-  // التأكد من وجود رابط قاعدة البيانات في إعدادات السيرفر
-  if (!process.env.DATABASE_URL) {
+  // التأكد من تهيئة الـ pool بنجاح ووجود الرابط
+  if (!pool) {
     return res.status(500).json({
       success: false,
       error: 'خطأ في السيرفر: لم يتم تعريف المتغير DATABASE_URL في إعدادات Vercel.'
@@ -36,25 +49,26 @@ export default async function handler(req, res) {
   }
 
   try {
-    // 3. الاتصال بقاعدة بيانات Neon عن طريق الرابط السري المخزن في سيرفر Vercel
-    const sql = neon(process.env.DATABASE_URL);
-
     // توليد معرف فريد تلقائي في حال لم يرسله الفرونت إند
     const finalId = id || `usr_${Math.random().toString(36).substr(2, 9)}`;
 
-    // 4. تنفيذ استعلام الـ INSERT لإدخال وحفظ بيانات العميل في جدول app_users
-    await sql(`
+    // 3. تنفيذ استعلام الـ INSERT وحفظ البيانات في جدول app_users باستخدام مكتبة pg
+    const queryText = `
       INSERT INTO app_users (id, name, email, password, phone, is_admin, active, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
-    `, [
-      finalId,                     // معرف المستخدم الفريد
-      name,                        // اسم المستخدم
-      email.toLowerCase().trim(),  // البريد الإلكتروني
-      password,                    // كلمة المرور
-      phone || '',                 // رقم الهاتف (اختياري)
-      isAdmin || false,            // هل هو مسؤول (اختياري)
-      true                         // الحساب نشط تلقائياً
-    ]);
+    `;
+    
+    const queryValues = [
+      finalId,
+      name,
+      email.toLowerCase().trim(),
+      password,
+      phone || '',
+      isAdmin || false,
+      true
+    ];
+
+    await pool.query(queryText, queryValues);
 
     // إرجاع استجابة بنجاح العملية
     return res.status(200).json({ 
@@ -66,11 +80,11 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('Registration Database Error:', error);
     
-    // معالجة خطأ تكرار البريد الإلكتروني (Unique Constraint) بشكل مخصص
-    if (error.message && error.message.includes('unique constraint')) {
+    // معالجة خطأ تكرار البريد الإلكتروني (Unique Constraint) بشكل مخصص (رمز الخطأ 23505 في PostgreSQL)
+    if (error.code === '23505' || (error.message && error.message.includes('unique constraint'))) {
       return res.status(400).json({ 
         success: false, 
-        error: 'البريد الإلكتروني مستخدم بالفعل مسجلاً مسبقاً.' 
+        error: 'البريد الإلكتروني مستخدم بالفعل ومسجل مسبقاً.' 
       });
     }
 
