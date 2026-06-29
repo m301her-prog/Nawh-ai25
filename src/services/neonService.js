@@ -235,7 +235,7 @@ const hashPassword = (password) => {
 
 /**
  * Register new user and create dedicated tables
- * Creates: user_{userId}_debts, user_{userId}_activities tables
+ * Creates: app_users record, user_{userId}_debts, user_{userId}_activities tables
  */
 export const registerUserAndCreateTables = async (name, email, password, phone) => {
   const users = loadFromLocalStorage('registeredUsers', []);
@@ -270,8 +270,34 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
 
   if (isNeonConfigured()) {
     try {
+      // 1. إنشاء جدول المستخدمين الرئيسي الموحد أولاً إذا لم يكن موجوداً، وحفظ بيانات المستخدم فيه
       await executeQuery(`
-        CREATE TABLE IF NOT EXISTS user_${userId.replace(/-/g, '_')}_debts (
+        CREATE TABLE IF NOT EXISTS app_users (
+          id VARCHAR(50) PRIMARY KEY,
+          name TEXT NOT NULL,
+          email TEXT UNIQUE NOT NULL,
+          password TEXT NOT NULL,
+          phone TEXT,
+          is_admin BOOLEAN DEFAULT FALSE,
+          active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      // إدخال بيانات المستخدم الجديد في الجدول الأساسي لقاعدة البيانات
+      await executeQuery(`
+        INSERT INTO app_users (id, name, email, password, phone, is_admin, active, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `, [
+        newUser.id, newUser.name, newUser.email, newUser.password, 
+        newUser.phone, newUser.isAdmin, newUser.active, newUser.createdAt
+      ]);
+
+      // 2. إنشاء الجداول الديناميكية الفرعية والخاصة بهذا المستخدم للديون والنشاطات
+      const sanitizedUserId = userId.replace(/-/g, '_');
+      
+      await executeQuery(`
+        CREATE TABLE IF NOT EXISTS user_${sanitizedUserId}_debts (
           id VARCHAR(50) PRIMARY KEY,
           type VARCHAR(20) NOT NULL,
           person_name TEXT NOT NULL,
@@ -288,7 +314,7 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
       `);
 
       await executeQuery(`
-        CREATE TABLE IF NOT EXISTS user_${userId.replace(/-/g, '_')}_activities (
+        CREATE TABLE IF NOT EXISTS user_${sanitizedUserId}_activities (
           id VARCHAR(50) PRIMARY KEY,
           action VARCHAR(50) NOT NULL,
           details TEXT,
@@ -296,9 +322,9 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
         )
       `);
 
-      console.log('Neon tables created for user:', userId);
+      console.log('Neon app_users and dynamic tables processed for user:', userId);
     } catch (error) {
-      console.error('Failed to create Neon tables:', error);
+      console.error('Failed to create Neon tables / insert user:', error);
     }
   }
 
@@ -652,8 +678,8 @@ export const calculateStatistics = (userId) => {
   };
 };
 
-// Export service object
-const neonService = {
+// التصدير المسمى المباشر (Named Export) لحل مشكلة الـ Vercel Build نهائياً
+export const neonService = {
   isNeonConfigured,
   triggerAndroidCapture,
   saveToLocalStorage,
@@ -675,4 +701,5 @@ const neonService = {
   calculateStatistics
 };
 
+// التصدير الافتراضي (Default Export) للمحافظة على التوافقية مع الأكواد الأخرى
 export default neonService;
