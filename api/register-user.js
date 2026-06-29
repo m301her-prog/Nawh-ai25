@@ -19,7 +19,7 @@ export default async function handler(req, res) {
   // 2. استقبال البيانات المرسلة من واجهة التطبيق
   const { id, name, email, password, phone, isAdmin } = req.body;
 
-  // التحقق من وجود البيانات الأساسية المطلوبة للتسجيل (جعلنا id اختياري لتفادي أخطاء الفرونت إند)
+  // التحقق من وجود البيانات الأساسية المطلوبة للتسجيل
   if (!name || !email || !password) {
     return res.status(400).json({ 
       success: false, 
@@ -27,9 +27,17 @@ export default async function handler(req, res) {
     });
   }
 
+  // التأكد من وجود رابط قاعدة البيانات في إعدادات السيرفر
+  if (!process.env.DATABASE_URL) {
+    return res.status(500).json({
+      success: false,
+      error: 'خطأ في السيرفر: لم يتم تعريف المتغير DATABASE_URL في إعدادات Vercel.'
+    });
+  }
+
   try {
-    // 3. الاتصال بقاعدة بيانات Neon عن طريق الرابط الممرر مباشرة
-    const sql = neon(DATABASE_URL);
+    // 3. الاتصال بقاعدة بيانات Neon عن طريق الرابط السري المخزن في سيرفر Vercel
+    const sql = neon(process.env.DATABASE_URL);
 
     // توليد معرف فريد تلقائي في حال لم يرسله الفرونت إند
     const finalId = id || `usr_${Math.random().toString(36).substr(2, 9)}`;
