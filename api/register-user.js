@@ -19,36 +19,40 @@ export default async function handler(req, res) {
   // 2. استقبال البيانات المرسلة من واجهة التطبيق
   const { id, name, email, password, phone, isAdmin } = req.body;
 
-  // التحقق من وجود البيانات الأساسية المطلوبة للتسجيل
-  if (!id || !name || !email || !password) {
+  // التحقق من وجود البيانات الأساسية المطلوبة للتسجيل (جعلنا id اختياري لتفادي أخطاء الفرونت إند)
+  if (!name || !email || !password) {
     return res.status(400).json({ 
       success: false, 
-      error: 'البيانات الأساسية (المعرف، الاسم، البريد الإلكتروني، كلمة المرور) مطلوبة بالكامل.' 
+      error: 'البيانات الأساسية (الاسم، البريد الإلكتروني، كلمة المرور) مطلوبة بالكامل.' 
     });
   }
 
   try {
-    // 3. الاتصال بقاعدة بيانات Neon عن طريق الرابط السري المخزن في سيرفر Vercel
-    const sql = neon(process.env.DATABASE_URL);
+    // 3. الاتصال بقاعدة بيانات Neon عن طريق الرابط الممرر مباشرة
+    const sql = neon(DATABASE_URL);
+
+    // توليد معرف فريد تلقائي في حال لم يرسله الفرونت إند
+    const finalId = id || `usr_${Math.random().toString(36).substr(2, 9)}`;
 
     // 4. تنفيذ استعلام الـ INSERT لإدخال وحفظ بيانات العميل في جدول app_users
     await sql(`
       INSERT INTO app_users (id, name, email, password, phone, is_admin, active, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
     `, [
-      id,                          // معرف المستخدم الفريد (usr_xxx)
+      finalId,                     // معرف المستخدم الفريد
       name,                        // اسم المستخدم
-      email.toLowerCase().trim(),  // البريد الإلكتروني (تنظيفه وتحويله لأحرف صغيرة)
-      password,                    // كلمة المرور (المشفرة القادمة من الفرونت إند)
+      email.toLowerCase().trim(),  // البريد الإلكتروني
+      password,                    // كلمة المرور
       phone || '',                 // رقم الهاتف (اختياري)
-      isAdmin || false,            // هل هو مسؤول (اختياري - الافتراضي false)
-      true                         // الحساب نشط تلقائياً عند الإنشاء
+      isAdmin || false,            // هل هو مسؤول (اختياري)
+      true                         // الحساب نشط تلقائياً
     ]);
 
     // إرجاع استجابة بنجاح العملية
     return res.status(200).json({ 
       success: true, 
-      message: 'تم حفظ بيانات تسجيل دخول العميل بنجاح في قاعدة البيانات.' 
+      message: 'تم حفظ بيانات تسجيل دخول العميل بنجاح في قاعدة البيانات.',
+      userId: finalId
     });
 
   } catch (error) {
