@@ -21,7 +21,8 @@ export default async function handler(request, response) {
     }
 
     try {
-        const sql = neon(process.env.DATABASE_URL);
+        // استخدام المتغير الجديد DATABASE_URL الممرر من البيئة مباشرة
+        const sql = neon(DATABASE_URL);
         
         // تنظيف معرف المستخدم من علامات الطرح ليتطابق مع أسماء الجداول الديناميكية (user_usr_xxx)
         const sanitizedUserId = userId.replace(/-/g, '_');
