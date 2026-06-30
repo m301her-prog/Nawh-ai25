@@ -4,9 +4,18 @@
  * Includes Android Capture event triggers for WebView integration
  * Optimized with CapacitorHttp for native cross-platform compatibility
  * Updated: Support for debt scheduling and installments
+ * Updated: Integration with Cloud APIs for data sync
  */
 
 import { CapacitorHttp } from '@capacitor/core';
+
+// Cloud API URLs for Neon database sync
+const CLOUD_API = {
+  registerUser: 'https://nawh-ai25.vercel.app/api/register-user',
+  loginUser: 'https://nawh-ai25.vercel.app/api/login-user',
+  saveData: 'https://nawh-ai25.vercel.app/save',
+  getData: 'https://nawh-ai25.vercel.app/get'
+};
 
 // Neon database connection string - set in .env as VITE_NEON_DATABASE_URL
 const getConnectionString = () => {
@@ -65,6 +74,35 @@ const executeQuery = async (query, params = []) => {
   } catch (error) {
     console.error('Neon query error via CapacitorHttp:', error);
     throw error;
+  }
+};
+
+/**
+ * Make HTTP request to Cloud API with fallback handling
+ */
+const cloudApiRequest = async (url, method, data) => {
+  try {
+    const options = {
+      url: url,
+      method: method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      data: data
+    };
+
+    const response = await CapacitorHttp.request(options);
+
+    if (response.status >= 200 && response.status < 300) {
+      return response.data;
+    } else {
+      console.warn(`Cloud API error ${response.status}: ${url}`);
+      return null;
+    }
+  } catch (error) {
+    console.warn('Cloud API request failed:', error.message, url);
+    return null;
   }
 };
 
@@ -184,6 +222,7 @@ const hashPassword = (password) => {
 /**
  * Register new user and create dedicated tables
  * Creates: user_{userId}_debts, user_{userId}_activities tables
+ * Now includes Cloud API sync for user registration
  */
 export const registerUserAndCreateTables = async (name, email, password, phone) => {
   const users = loadFromLocalStorage('registeredUsers', []);
@@ -207,6 +246,7 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
     createdAt: new Date().toISOString()
   };
 
+  // Save to localStorage first (primary storage)
   users.push(newUser);
   saveToLocalStorage('registeredUsers', users);
 
@@ -216,6 +256,39 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
   saveToLocalStorage(userDebtsKey, []);
   saveToLocalStorage(userActivitiesKey, []);
 
+  // Send registration data to Cloud API for Neon sync
+  try {
+    const cloudResponse = await cloudApiRequest(CLOUD_API.registerUser, 'POST', {
+      userId: userId,
+      name: name,
+      email: email,
+      password: hashedPassword,
+      phone: phone || '',
+      isAdmin: isAdmin,
+      createdAt: newUser.createdAt
+    });
+
+    if (cloudResponse && cloudResponse.success) {
+      console.log('User registered successfully to Cloud API:', userId);
+
+      // Update local data with any additional data from cloud response
+      if (cloudResponse.user) {
+        const updatedUser = { ...newUser, ...cloudResponse.user };
+        const updatedUsers = loadFromLocalStorage('registeredUsers', []);
+        const userIndex = updatedUsers.findIndex(u => u.id === userId);
+        if (userIndex !== -1) {
+          updatedUsers[userIndex] = updatedUser;
+          saveToLocalStorage('registeredUsers', updatedUsers);
+        }
+      }
+    } else {
+      console.warn('Cloud API registration response:', cloudResponse);
+    }
+  } catch (error) {
+    console.warn('Cloud API registration failed, continuing with local:', error.message);
+  }
+
+  // Also try Neon direct connection if configured
   if (isNeonConfigured()) {
     try {
       await executeQuery(`
@@ -270,11 +343,95 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
 };
 
 /**
- * Authenticate user
+ * Authenticate user with Cloud API support
  */
 export const authUser = async (email, password) => {
-  const users = loadFromLocalStorage('registeredUsers', []);
   const hashedPassword = hashPassword(password);
+
+  // Try Cloud API authentication first
+  try {
+    const cloudResponse = await cloudApiRequest(CLOUD_API.loginUser, 'POST', {
+      email: email,
+      password: hashedPassword
+    });
+
+    if (cloudResponse && cloudResponse.success && cloudResponse.user) {
+      console.log('User authenticated via Cloud API:', cloudResponse.user.id);
+
+      // Update local storage with cloud user data
+      const cloudUser = cloudResponse.user;
+
+      // Check if user exists locally, if not add them
+      const localUsers = loadFromLocalStorage('registeredUsers', []);
+      const existingUserIndex = localUsers.findIndex(u => u.email === email);
+
+      if (existingUserIndex === -1) {
+        // User not in local storage, add from cloud
+        const newLocalUser = {
+          id: cloudUser.id,
+          name: cloudUser.name,
+          email: cloudUser.email,
+          password: hashedPassword,
+          phone: cloudUser.phone || '',
+          active: true,
+          isAdmin: cloudUser.isAdmin || false,
+          createdAt: cloudUser.createdAt,
+          lastLogin: new Date().toISOString()
+        };
+        localUsers.push(newLocalUser);
+        saveToLocalStorage('registeredUsers', localUsers);
+      } else {
+        // Update existing user
+        localUsers[existingUserIndex] = {
+          ...localUsers[existingUserIndex],
+          ...cloudUser,
+          password: hashedPassword,
+          lastLogin: new Date().toISOString()
+        };
+        saveToLocalStorage('registeredUsers', localUsers);
+      }
+
+      // Fetch and merge debts from cloud
+      if (cloudResponse.debts && Array.isArray(cloudResponse.debts)) {
+        const userDebtsKey = `user_${cloudUser.id}_debts`;
+        const localDebts = loadFromLocalStorage(userDebtsKey, []);
+
+        // Merge cloud debts with local debts (prefer newer updatedAt)
+        const mergedDebts = [...localDebts];
+        cloudResponse.debts.forEach(cloudDebt => {
+          const existingIndex = mergedDebts.findIndex(d => d.id === cloudDebt.id);
+          if (existingIndex === -1) {
+            mergedDebts.push(cloudDebt);
+          } else {
+            const localUpdated = new Date(mergedDebts[existingIndex].updatedAt || 0);
+            const cloudUpdated = new Date(cloudDebt.updatedAt || 0);
+            if (cloudUpdated > localUpdated) {
+              mergedDebts[existingIndex] = cloudDebt;
+            }
+          }
+        });
+
+        saveToLocalStorage(userDebtsKey, mergedDebts);
+      }
+
+      logUserActivity(cloudUser.id, 'USER_LOGIN', { email });
+
+      triggerAndroidCapture('USER_LOGIN', {
+        userId: cloudUser.id,
+        email: cloudUser.email,
+        timestamp: new Date().toISOString(),
+        source: 'cloud_api'
+      });
+
+      const { password: _, ...userWithoutPassword } = cloudUser;
+      return { ...userWithoutPassword, id: cloudUser.id };
+    }
+  } catch (error) {
+    console.warn('Cloud API login failed, falling back to local:', error.message);
+  }
+
+  // Fallback to local authentication
+  const users = loadFromLocalStorage('registeredUsers', []);
 
   const user = users.find(u =>
     u.email === email && u.password === hashedPassword && u.active
@@ -296,7 +453,8 @@ export const authUser = async (email, password) => {
   triggerAndroidCapture('USER_LOGIN', {
     userId: user.id,
     email: user.email,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    source: 'local_storage'
   });
 
   const { password: _, ...userWithoutPassword } = user;
@@ -331,11 +489,14 @@ export const getUserById = (userId) => {
  */
 
 /**
- * Fetch all debts for a specific user
+ * Fetch all debts for a specific user with Cloud API sync
  */
 export const fetchDebts = (userId) => {
   const userDebtsKey = `user_${userId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
+
+  // Trigger async cloud fetch in background (non-blocking)
+  fetchDebtsFromCloud(userId);
 
   return debts.sort((a, b) =>
     new Date(b.createdAt) - new Date(a.createdAt)
@@ -343,7 +504,55 @@ export const fetchDebts = (userId) => {
 };
 
 /**
- * Add new debt for user with scheduling support
+ * Fetch debts from Cloud API (async, non-blocking)
+ */
+const fetchDebtsFromCloud = async (userId) => {
+  try {
+    const cloudResponse = await cloudApiRequest(CLOUD_API.getData, 'POST', {
+      userId: userId
+    });
+
+    if (cloudResponse && cloudResponse.success && cloudResponse.debts) {
+      console.log('Fetched debts from Cloud API:', cloudResponse.debts.length);
+
+      const userDebtsKey = `user_${userId}_debts`;
+      const localDebts = loadFromLocalStorage(userDebtsKey, []);
+
+      // Merge cloud debts with local (prefer newer data)
+      const mergedDebts = [...localDebts];
+      let hasUpdates = false;
+
+      cloudResponse.debts.forEach(cloudDebt => {
+        const existingIndex = mergedDebts.findIndex(d => d.id === cloudDebt.id);
+        if (existingIndex === -1) {
+          // New debt from cloud
+          mergedDebts.push(cloudDebt);
+          hasUpdates = true;
+        } else {
+          const localUpdated = new Date(mergedDebts[existingIndex].updatedAt || 0);
+          const cloudUpdated = new Date(cloudDebt.updatedAt || 0);
+          if (cloudUpdated > localUpdated) {
+            mergedDebts[existingIndex] = cloudDebt;
+            hasUpdates = true;
+          }
+        }
+      });
+
+      if (hasUpdates) {
+        saveToLocalStorage(userDebtsKey, mergedDebts);
+        triggerAndroidCapture('DEBTS_SYNCED_FROM_CLOUD', {
+          userId,
+          count: cloudResponse.debts.length
+        });
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to fetch debts from cloud:', error.message);
+  }
+};
+
+/**
+ * Add new debt for user with scheduling support and Cloud API sync
  */
 export const addDebt = async (userId, debtData) => {
   const userDebtsKey = `user_${userId}_debts`;
@@ -370,8 +579,34 @@ export const addDebt = async (userId, debtData) => {
     updatedAt: new Date().toISOString()
   };
 
+  // Save to localStorage
   debts.push(newDebt);
   saveToLocalStorage(userDebtsKey, debts);
+
+  // Send to Cloud API for Neon sync
+  try {
+    const cloudResponse = await cloudApiRequest(CLOUD_API.saveData, 'POST', {
+      userId: userId,
+      action: 'add_debt',
+      debt: newDebt
+    });
+
+    if (cloudResponse && cloudResponse.success) {
+      console.log('Debt saved to Cloud API:', newDebt.id);
+
+      // Update with any server-generated fields if provided
+      if (cloudResponse.debt) {
+        const updatedDebts = loadFromLocalStorage(userDebtsKey, []);
+        const debtIndex = updatedDebts.findIndex(d => d.id === newDebt.id);
+        if (debtIndex !== -1) {
+          updatedDebts[debtIndex] = { ...updatedDebts[debtIndex], ...cloudResponse.debt };
+          saveToLocalStorage(userDebtsKey, updatedDebts);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to sync debt to Cloud API:', error.message);
+  }
 
   logUserActivity(userId, 'DEBT_ADDED', {
     debtId: newDebt.id,
@@ -385,6 +620,7 @@ export const addDebt = async (userId, debtData) => {
     debt: newDebt
   });
 
+  // Also try Neon direct connection if configured
   if (isNeonConfigured()) {
     try {
       const tableName = `user_${userId.replace(/-/g, '_')}_debts`;
@@ -408,7 +644,7 @@ export const addDebt = async (userId, debtData) => {
 };
 
 /**
- * Update debt status
+ * Update debt status with Cloud API sync
  */
 export const updateDebtStatus = async (userId, debtId, updates) => {
   const userDebtsKey = `user_${userId}_debts`;
@@ -428,6 +664,22 @@ export const updateDebtStatus = async (userId, debtId, updates) => {
   debts[debtIndex] = updatedDebt;
   saveToLocalStorage(userDebtsKey, debts);
 
+  // Send update to Cloud API
+  try {
+    const cloudResponse = await cloudApiRequest(CLOUD_API.saveData, 'POST', {
+      userId: userId,
+      action: 'update_debt',
+      debtId: debtId,
+      updates: updatedDebt
+    });
+
+    if (cloudResponse && cloudResponse.success) {
+      console.log('Debt update synced to Cloud API:', debtId);
+    }
+  } catch (error) {
+    console.warn('Failed to sync debt update to Cloud API:', error.message);
+  }
+
   logUserActivity(userId, 'DEBT_UPDATED', {
     debtId,
     updates: Object.keys(updates).join(', ')
@@ -443,7 +695,7 @@ export const updateDebtStatus = async (userId, debtId, updates) => {
 };
 
 /**
- * Delete debt
+ * Delete debt with Cloud API sync
  */
 export const deleteDebt = async (userId, debtId) => {
   const userDebtsKey = `user_${userId}_debts`;
@@ -451,6 +703,21 @@ export const deleteDebt = async (userId, debtId) => {
 
   const filteredDebts = debts.filter(d => d.id !== debtId);
   saveToLocalStorage(userDebtsKey, filteredDebts);
+
+  // Send delete to Cloud API
+  try {
+    const cloudResponse = await cloudApiRequest(CLOUD_API.saveData, 'POST', {
+      userId: userId,
+      action: 'delete_debt',
+      debtId: debtId
+    });
+
+    if (cloudResponse && cloudResponse.success) {
+      console.log('Debt deletion synced to Cloud API:', debtId);
+    }
+  } catch (error) {
+    console.warn('Failed to sync debt deletion to Cloud API:', error.message);
+  }
 
   logUserActivity(userId, 'DEBT_DELETED', { debtId });
 
@@ -510,26 +777,28 @@ export const generateDebtReport = (userId, language = 'ar') => {
       owedToMe: 'لي',
       iOwe: 'عليّ',
       scheduled: 'مجدول',
-      notScheduled: 'غير مجدول'
+      notScheduled: 'غير مجدول',
+      yes: 'نعم'
     },
     fr: {
       title: 'Rapport des dettes',
       date: 'Date du rapport',
       user: 'Utilisateur',
-      totalOwed: 'Total à recevoir',
-      totalOwe: 'Total à payer',
-      paid: 'Payées',
+      totalOwed: 'Total a recevoir',
+      totalOwe: 'Total a payer',
+      paid: 'Payees',
       pending: 'En attente',
       overdue: 'En retard',
       person: 'Personne',
       amount: 'Montant',
-      dueDate: "Date d'échéance",
+      dueDate: "Date d'echeance",
       status: 'Statut',
       type: 'Type',
-      owedToMe: 'À recevoir',
-      iOwe: 'À payer',
-      scheduled: 'Programmé',
-      notScheduled: 'Non programmé'
+      owedToMe: 'A recevoir',
+      iOwe: 'A payer',
+      scheduled: 'Programme',
+      notScheduled: 'Non programme',
+      yes: 'Oui'
     },
     en: {
       title: 'Debts Report',
@@ -548,7 +817,8 @@ export const generateDebtReport = (userId, language = 'ar') => {
       owedToMe: 'Owed to Me',
       iOwe: 'I Owe',
       scheduled: 'Scheduled',
-      notScheduled: 'Not Scheduled'
+      notScheduled: 'Not Scheduled',
+      yes: 'Yes'
     }
   };
 
@@ -560,7 +830,7 @@ export const generateDebtReport = (userId, language = 'ar') => {
   report += `${h.date}: ${formatDate(new Date().toISOString())}\n`;
   report += `${h.user}: ${user?.name || user?.email || 'Unknown'}\n\n`;
   report += `───────────────────────────────────────────────────────────────\n`;
-  report += `                         ${language === 'ar' ? 'الملخص' : language === 'fr' ? 'Résumé' : 'Summary'}\n`;
+  report += `                         ${language === 'ar' ? 'الملخص' : language === 'fr' ? 'Resume' : 'Summary'}\n`;
   report += `───────────────────────────────────────────────────────────────\n`;
   report += `${h.totalOwed}: ${formatCurrency(stats.totalOwedToMe)}\n`;
   report += `${h.totalOwe}: ${formatCurrency(stats.totalIOwe)}\n`;
@@ -570,7 +840,7 @@ export const generateDebtReport = (userId, language = 'ar') => {
 
   if (debts.length > 0) {
     report += `═══════════════════════════════════════════════════════════════\n`;
-    report += `                     ${language === 'ar' ? 'تفاصيل الديون' : language === 'fr' ? 'Détails des dettes' : 'Debt Details'}\n`;
+    report += `                     ${language === 'ar' ? 'تفاصيل الديون' : language === 'fr' ? 'Details des dettes' : 'Debt Details'}\n`;
     report += `═══════════════════════════════════════════════════════════════\n\n`;
 
     debts.forEach((debt, index) => {
@@ -582,7 +852,7 @@ export const generateDebtReport = (userId, language = 'ar') => {
       report += `   ${h.dueDate}: ${formatDate(debt.dueDate)}\n`;
       report += `   ${h.status}: ${debt.status === 'paid' ? h.paid : debt.status === 'pending' ? h.pending : h.overdue}\n`;
       if (debt.isScheduled) {
-        report += `   ${h.scheduled}: ${h.yes || 'نعم'} (${debt.installmentsCount} ${language === 'ar' ? 'دفعات' : language === 'fr' ? 'versements' : 'installments'})\n`;
+        report += `   ${h.scheduled}: ${h.yes} (${debt.installmentsCount} ${language === 'ar' ? 'دفعات' : language === 'fr' ? 'versements' : 'installments'})\n`;
       }
       if (debt.notes) {
         report += `   ${language === 'ar' ? 'ملاحظات' : language === 'fr' ? 'Notes' : 'Notes'}: ${debt.notes}\n`;
@@ -677,6 +947,13 @@ export const logUserActivity = (userId, action, details) => {
   activities.unshift(newActivity);
   saveToLocalStorage(userActivitiesKey, activities.slice(0, 100));
 
+  // Sync activity to Cloud API
+  cloudApiRequest(CLOUD_API.saveData, 'POST', {
+    userId: userId,
+    action: 'log_activity',
+    activity: newActivity
+  }).catch(err => console.warn('Failed to sync activity:', err.message));
+
   return newActivity;
 };
 
@@ -737,6 +1014,13 @@ export const toggleUserStatus = (userId, active) => {
   );
   saveToLocalStorage('registeredUsers', updatedUsers);
 
+  // Sync to Cloud API
+  cloudApiRequest(CLOUD_API.saveData, 'POST', {
+    action: 'toggle_user_status',
+    userId: userId,
+    active: active
+  }).catch(err => console.warn('Failed to sync user status:', err.message));
+
   triggerAndroidCapture('USER_STATUS_CHANGED', { userId, active });
 };
 
@@ -747,6 +1031,12 @@ export const deleteUser = (userId) => {
 
   localStorage.removeItem(`user_${userId}_debts`);
   localStorage.removeItem(`user_${userId}_activities`);
+
+  // Sync deletion to Cloud API
+  cloudApiRequest(CLOUD_API.saveData, 'POST', {
+    action: 'delete_user',
+    userId: userId
+  }).catch(err => console.warn('Failed to sync user deletion:', err.message));
 
   triggerAndroidCapture('USER_DELETED', { userId });
 };
@@ -820,12 +1110,23 @@ const calculateMonthlyStatistics = (debts) => {
     const monthPaid = monthDebts.filter(d => d.status === 'paid').length;
     const monthTotal = monthDebts.length;
 
+    const owedToMe = monthDebts
+      .filter(d => d.type === 'owed_to_me')
+      .reduce((sum, d) => sum + d.amount, 0);
+
+    const iOwe = monthDebts
+      .filter(d => d.type === 'i_owe')
+      .reduce((sum, d) => sum + d.amount, 0);
+
     months.push({
-      month: date.toLocaleDateString('en', { month: 'short' }),
+      month: date.getMonth(),
+      monthName: date.toLocaleDateString('en', { month: 'short' }),
       year: date.getFullYear(),
       added: monthTotal,
       paid: monthPaid,
-      total: monthDebts.reduce((sum, d) => sum + d.amount, 0)
+      total: monthDebts.reduce((sum, d) => sum + d.amount, 0),
+      owedToMe: owedToMe,
+      iOwe: iOwe
     });
   }
 
