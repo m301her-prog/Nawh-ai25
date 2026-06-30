@@ -13,7 +13,9 @@ import {
   Phone,
   Trash2,
   AlertCircle,
-  Info
+  Info,
+  Clock,
+  RefreshCw
 } from 'lucide-react';
 import { currencies } from '../i18n/translations.jsx';
 
@@ -38,7 +40,11 @@ export default function DebtForm() {
     currency: 'DZD',
     dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     notes: '',
-    status: 'pending'
+    status: 'pending',
+    // حقول الجدولة الجديدة المضافة للبنية التحتية للفرونت إند والباك إند
+    isScheduled: false,
+    scheduleType: 'custom_days', // custom_days, weekly, monthly
+    scheduleInterval: '30' // القيمة الافتراضية للتكرار (مثلا كل 30 يوم)
   });
 
   const [errors, setErrors] = useState({});
@@ -55,7 +61,10 @@ export default function DebtForm() {
         currency: existingDebt.currency || 'DZD',
         dueDate: existingDebt.dueDate.split('T')[0],
         notes: existingDebt.notes || '',
-        status: existingDebt.status
+        status: existingDebt.status,
+        isScheduled: existingDebt.isScheduled || false,
+        scheduleType: existingDebt.scheduleType || 'custom_days',
+        scheduleInterval: (existingDebt.scheduleInterval || '30').toString()
       });
     }
   }, [existingDebt]);
@@ -66,7 +75,7 @@ export default function DebtForm() {
 
     if (!formData.personName.trim()) {
       newErrors.personName = language === 'ar' ? 'الاسم مطلوب' :
-                              language === 'fr' ? 'Le nom est requis' : 'Name is required';
+                             language === 'fr' ? 'Le nom est requis' : 'Name is required';
     }
 
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
@@ -77,6 +86,10 @@ export default function DebtForm() {
     if (!formData.dueDate) {
       newErrors.dueDate = language === 'ar' ? 'التاريخ مطلوب' :
                            language === 'fr' ? 'Date requise' : 'Date is required';
+    }
+
+    if (formData.isScheduled && (!formData.scheduleInterval || parseInt(formData.scheduleInterval) <= 0)) {
+      newErrors.scheduleInterval = language === 'ar' ? 'الرجاء تحديد فترة تكرار صالحة' : 'Invalid interval';
     }
 
     setErrors(newErrors);
@@ -92,7 +105,11 @@ export default function DebtForm() {
     try {
       const debtData = {
         ...formData,
-        amount: parseFloat(formData.amount)
+        amount: parseFloat(formData.amount),
+        // نضمن إرسال قيم الجدولة بصيغتها الصحيحة للباك إند
+        isScheduled: formData.isScheduled,
+        scheduleType: formData.isScheduled ? formData.scheduleType : 'custom_days',
+        scheduleInterval: formData.isScheduled ? parseInt(formData.scheduleInterval) : 0
       };
 
       if (isEditing) {
@@ -131,6 +148,7 @@ export default function DebtForm() {
       <header className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white p-4 sticky top-0 z-10 shadow-lg">
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={() => navigate(-1)}
             className="p-2 rounded-xl hover:bg-white/20 transition"
           >
@@ -306,6 +324,71 @@ export default function DebtForm() {
           )}
         </div>
 
+        {/* الميزة الجديدة: قسم جدولة وتكرار الديون الاحترافي */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg space-y-4">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-bold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-emerald-500" />
+              {language === 'ar' ? 'تكرار أو جدولة هذا الدين' : 'Schedule / Repeat Debt'}
+            </label>
+            <input 
+              type="checkbox" 
+              checked={formData.isScheduled} 
+              onChange={(e) => handleChange('isScheduled', e.target.checked)}
+              className="w-5 h-5 text-emerald-500 rounded focus:ring-emerald-500 accent-emerald-500"
+            />
+          </div>
+
+          {formData.isScheduled && (
+            <div className="grid grid-cols-1 gap-4 pt-3 border-t border-gray-100 dark:border-gray-700 transition-all">
+              {/* اختيار نمط ونوع التكرار */}
+              <div>
+                <label className="block text-xs text-gray-400 dark:text-gray-400 mb-1">
+                  {language === 'ar' ? 'نمط الجدولة' : 'Schedule Pattern'}
+                </label>
+                <select
+                  value={formData.scheduleType}
+                  onChange={(e) => handleChange('scheduleType', e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 transition font-medium"
+                >
+                  <option value="custom_days">{language === 'ar' ? 'كل عدد معين من الأيام' : 'Every custom days'}</option>
+                  <option value="weekly">{language === 'ar' ? 'تكرار أسبوعي' : 'Weekly Repeat'}</option>
+                  <option value="monthly">{language === 'ar' ? 'تكرار شهري' : 'Monthly Repeat'}</option>
+                </select>
+              </div>
+
+              {/* تحديد الفترات بناءً على النمط */}
+              <div>
+                <label className="block text-xs text-gray-400 dark:text-gray-400 mb-1">
+                  {formData.scheduleType === 'custom_days' && (language === 'ar' ? 'يتكرر كل كم يوم؟' : 'Repeat every X days')}
+                  {formData.scheduleType === 'weekly' && (language === 'ar' ? 'يتكرر كل كم أسبوع؟' : 'Repeat every X weeks')}
+                  {formData.scheduleType === 'monthly' && (language === 'ar' ? 'يتكرر كل كم شهر؟' : 'Repeat every X months')}
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    value={formData.scheduleInterval}
+                    onChange={(e) => handleChange('scheduleInterval', e.target.value)}
+                    className={`w-full px-4 py-3 rounded-xl border-2 ${
+                      errors.scheduleInterval ? 'border-red-500' : 'border-gray-200 dark:border-gray-600'
+                    } bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 transition`}
+                    placeholder="30"
+                  />
+                  <span className="text-sm font-bold text-gray-500 whitespace-nowrap">
+                    {formData.scheduleType === 'custom_days' && (language === 'ar' ? 'يوم' : 'Days')}
+                    {formData.scheduleType === 'weekly' && (language === 'ar' ? 'أسبوع' : 'Weeks')}
+                    {formData.scheduleType === 'monthly' && (language === 'ar' ? 'شهر' : 'Months')}
+                  </span>
+                </div>
+                {errors.scheduleInterval && (
+                  <p className="mt-1 text-xs text-red-500 font-medium">{errors.scheduleInterval}</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Status - Only for editing */}
         {isEditing && (
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg">
@@ -389,12 +472,14 @@ export default function DebtForm() {
 
             <div className="flex gap-3">
               <button
+                type="button"
                 onClick={() => setShowDeleteConfirm(false)}
                 className="flex-1 py-3.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition"
               >
                 {t('cancel')}
               </button>
               <button
+                type="button"
                 onClick={handleDelete}
                 className="flex-1 py-3.5 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition"
               >
