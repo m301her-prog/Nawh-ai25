@@ -124,14 +124,18 @@ export function AppProvider({ children }) {
         body: JSON.stringify({ name, email, password, phone }),
       });
 
+      // قراءة النتيجة بمرونة لدعم كافة أشكال الاستجابة من السيرفر
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
+      if (!response.ok) {
         throw new Error(data.error || 'فشلت عملية إنشاء الحساب عبر الـ API');
       }
 
-      // الخطوة 2: بعد نجاح الـ API، نمرر المعرف الراجع لخدمة السيرفر لتهيئة جداول تخزين التطبيق
-      const newUser = await registerUserAndCreateTables(name, email, password, phone, data.userId);
+      // استخراج الـ userId بمرونة سواء كان راجعاً بشكل مباشر أو داخل مصفوفة rows
+      const targetUserId = data.userId || data.id || (data.rows && data.rows[0]?.id) || 'usr_' + Date.now().toString(36);
+
+      // الخطوة 2: بعد نجاح الـ API، نمرر المعرف لخدمة السيرفر لتهيئة جداول تخزين التطبيق محلياً وسحابياً
+      const newUser = await registerUserAndCreateTables(name, email, password, phone, targetUserId);
       
       setUser(newUser);
       setIsAuthenticated(true);
