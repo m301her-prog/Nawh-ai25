@@ -283,8 +283,9 @@ export const authUser = async (email, password) => {
   const users = loadFromLocalStorage('registeredUsers', []);
   const hashedPassword = hashPassword(password);
 
+  // تم التعديل هنا لقبول فحص الكلمة الصريحة أو المشفرة لحل مشكلة قفل الدخول نهائياً
   const user = users.find(u =>
-    u.email === email && u.password === hashedPassword && u.active
+    u.email === email && (u.password === password || u.password === hashedPassword) && u.active
   );
 
   if (!user) {
