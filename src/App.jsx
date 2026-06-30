@@ -5,6 +5,7 @@ import Home from './pages/Home.jsx';
 import DebtList from './pages/DebtList.jsx';
 import DebtForm from './pages/DebtForm.jsx';
 import DebtDetail from './pages/DebtDetail.jsx';
+import DebtStatistics from './pages/DebtStatistics.jsx';
 import Settings from './pages/Settings.jsx';
 import Admin from './pages/Admin.jsx';
 import Notification from './components/Notification.jsx';
@@ -126,6 +127,16 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <DebtForm />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Statistics Route - Protected */}
+          <Route
+            path="/statistics"
+            element={
+              <ProtectedRoute>
+                <DebtStatistics />
               </ProtectedRoute>
             }
           />

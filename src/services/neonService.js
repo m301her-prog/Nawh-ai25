@@ -3,6 +3,7 @@
  * Handles all database operations with dynamic per-user tables
  * Includes Android Capture event triggers for WebView integration
  * Optimized with CapacitorHttp for native cross-platform compatibility
+ * Updated: Support for debt scheduling and installments
  */
 
 import { CapacitorHttp } from '@capacitor/core';
@@ -30,28 +31,23 @@ const executeQuery = async (query, params = []) => {
   }
 
   try {
-    // تشكيل الرابط للاتصال بـ Neon HTTP API
-    // نقوم باستبدال بروتوكول postgres:// بـ https:// إذا كان موجوداً للتعامل مع النفق الذكي
     let httpUrl = connString;
     if (httpUrl.startsWith('postgres://')) {
       httpUrl = httpUrl.replace('postgres://', 'https://');
     } else if (httpUrl.startsWith('postgresql://')) {
       httpUrl = httpUrl.replace('postgresql://', 'https://');
     }
-    
-    // إذا كان الرابط لا يحتوي على مسار الاستعلام الافتراضي لنظام الـ HTTP في نيوم، نقوم بإضافته
+
     if (!httpUrl.includes('/v1/sql') && !httpUrl.includes('/sql')) {
-      // تنظيف الرابط وإضافة مسار الـ SQL API الخاص بـ Neon
       const urlObj = new URL(httpUrl);
       httpUrl = `https://${urlObj.host}/v1/sql`;
     }
 
     const options = {
       url: httpUrl,
-      headers: { 
+      headers: {
         'Content-Type': 'application/json',
-        // في بعض إعدادات Neon HTTP API يتم تمرير الاتصال في الهيدر إذا لم يكن مدمجاً بالرابط
-        'Authorization': `Bearer ${connString.split('@')[0].split(':').pop()}` 
+        'Authorization': `Bearer ${connString.split('@')[0].split(':').pop()}`
       },
       data: {
         query: query,
@@ -60,7 +56,7 @@ const executeQuery = async (query, params = []) => {
     };
 
     const response = await CapacitorHttp.post(options);
-    
+
     if (response.status >= 200 && response.status < 300) {
       return response.data;
     } else {
@@ -120,7 +116,6 @@ const saveCaptureEvent = (eventData) => {
   try {
     const captureLog = JSON.parse(localStorage.getItem('captureLog') || '[]');
     captureLog.push(eventData);
-    // Keep last 100 events
     const trimmed = captureLog.slice(-100);
     localStorage.setItem('captureLog', JSON.stringify(trimmed));
   } catch (error) {
@@ -161,6 +156,13 @@ const generateUserId = () => {
 };
 
 /**
+ * Generate unique debt ID
+ */
+const generateDebtId = () => {
+  return 'debt_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 5);
+};
+
+/**
  * Hash password (simple implementation - in production use bcrypt on server)
  */
 const hashPassword = (password) => {
@@ -186,9 +188,8 @@ const hashPassword = (password) => {
 export const registerUserAndCreateTables = async (name, email, password, phone) => {
   const users = loadFromLocalStorage('registeredUsers', []);
 
-  // Check if email exists
   if (users.find(u => u.email === email)) {
-    throw new Error('البريد الإلكتروني مستعمل / Email déjà utilisé / Email already registered');
+    throw new Error('البريد الإلكتروني مسجل مسبقاً / Email déjà utilisé / Email already registered');
   }
 
   const userId = generateUserId();
@@ -206,21 +207,17 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
     createdAt: new Date().toISOString()
   };
 
-  // Save user
   users.push(newUser);
   saveToLocalStorage('registeredUsers', users);
 
-  // Initialize empty tables for user
   const userDebtsKey = `user_${userId}_debts`;
   const userActivitiesKey = `user_${userId}_activities`;
 
   saveToLocalStorage(userDebtsKey, []);
   saveToLocalStorage(userActivitiesKey, []);
 
-  // If Neon is configured, create actual SQL tables
   if (isNeonConfigured()) {
     try {
-      // Create user's debts table
       await executeQuery(`
         CREATE TABLE IF NOT EXISTS user_${userId.replace(/-/g, '_')}_debts (
           id VARCHAR(50) PRIMARY KEY,
@@ -233,12 +230,17 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
           notes TEXT,
           status VARCHAR(20) DEFAULT 'pending',
           paid_amount DECIMAL(12,2) DEFAULT 0,
+          is_scheduled BOOLEAN DEFAULT FALSE,
+          schedule_type VARCHAR(20),
+          installments_count INTEGER DEFAULT 0,
+          installments_paid INTEGER DEFAULT 0,
+          first_payment_date DATE,
+          schedule_data JSONB,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
 
-      // Create user's activities table
       await executeQuery(`
         CREATE TABLE IF NOT EXISTS user_${userId.replace(/-/g, '_')}_activities (
           id VARCHAR(50) PRIMARY KEY,
@@ -251,14 +253,11 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
       console.log('Neon tables created for user:', userId);
     } catch (error) {
       console.error('Failed to create Neon tables:', error);
-      // Continue with localStorage fallback
     }
   }
 
-  // Log activity
   logUserActivity(userId, 'USER_REGISTERED', { name, email, phone });
 
-  // Trigger Android Capture
   triggerAndroidCapture('USER_REGISTERED', {
     userId,
     name,
@@ -282,10 +281,9 @@ export const authUser = async (email, password) => {
   );
 
   if (!user) {
-    throw new Error('المعلومات خاطئة / Identifiants incorrects / Invalid credentials');
+    throw new Error('بيانات الدخول غير صحيحة / Identifiants incorrects / Invalid credentials');
   }
 
-  // Update last login
   const updatedUsers = users.map(u =>
     u.id === user.id
       ? { ...u, lastLogin: new Date().toISOString() }
@@ -293,10 +291,8 @@ export const authUser = async (email, password) => {
   );
   saveToLocalStorage('registeredUsers', updatedUsers);
 
-  // Log activity
   logUserActivity(user.id, 'USER_LOGIN', { email });
 
-  // Trigger Android Capture
   triggerAndroidCapture('USER_LOGIN', {
     userId: user.id,
     email: user.email,
@@ -341,22 +337,21 @@ export const fetchDebts = (userId) => {
   const userDebtsKey = `user_${userId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
 
-  // Sort by creation date (newest first)
   return debts.sort((a, b) =>
     new Date(b.createdAt) - new Date(a.createdAt)
   );
 };
 
 /**
- * Add new debt for user
+ * Add new debt for user with scheduling support
  */
 export const addDebt = async (userId, debtData) => {
   const userDebtsKey = `user_${userId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
 
   const newDebt = {
-    id: 'debt_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 5),
-    type: debtData.type, // 'owed_to_me' or 'i_owe'
+    id: generateDebtId(),
+    type: debtData.type,
     personName: debtData.personName,
     phone: debtData.phone || '',
     amount: parseFloat(debtData.amount),
@@ -365,6 +360,12 @@ export const addDebt = async (userId, debtData) => {
     notes: debtData.notes || '',
     status: 'pending',
     paidAmount: 0,
+    isScheduled: debtData.isScheduled || false,
+    scheduleType: debtData.scheduleType || null,
+    installmentsCount: debtData.installmentsCount || 0,
+    installmentsPaid: 0,
+    firstPaymentDate: debtData.firstPaymentDate || null,
+    scheduleData: debtData.scheduleData || null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -372,30 +373,31 @@ export const addDebt = async (userId, debtData) => {
   debts.push(newDebt);
   saveToLocalStorage(userDebtsKey, debts);
 
-  // Log activity
   logUserActivity(userId, 'DEBT_ADDED', {
     debtId: newDebt.id,
     personName: newDebt.personName,
-    amount: newDebt.amount
+    amount: newDebt.amount,
+    isScheduled: newDebt.isScheduled
   });
 
-  // Trigger Android Capture
   triggerAndroidCapture('DEBT_ADDED', {
     userId,
     debt: newDebt
   });
 
-  // If Neon is configured, sync to cloud
   if (isNeonConfigured()) {
     try {
       const tableName = `user_${userId.replace(/-/g, '_')}_debts`;
       await executeQuery(`
-        INSERT INTO ${tableName} (id, type, person_name, phone, amount, currency, due_date, notes, status, paid_amount)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        INSERT INTO ${tableName} (id, type, person_name, phone, amount, currency, due_date, notes, status, paid_amount, is_scheduled, schedule_type, installments_count, installments_paid, first_payment_date, schedule_data)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       `, [
         newDebt.id, newDebt.type, newDebt.personName, newDebt.phone,
         newDebt.amount, newDebt.currency, newDebt.dueDate,
-        newDebt.notes, newDebt.status, newDebt.paidAmount
+        newDebt.notes, newDebt.status, newDebt.paidAmount,
+        newDebt.isScheduled, newDebt.scheduleType, newDebt.installmentsCount,
+        newDebt.installmentsPaid, newDebt.firstPaymentDate,
+        JSON.stringify(newDebt.scheduleData)
       ]);
     } catch (error) {
       console.error('Failed to sync debt to Neon:', error);
@@ -414,7 +416,7 @@ export const updateDebtStatus = async (userId, debtId, updates) => {
 
   const debtIndex = debts.findIndex(d => d.id === debtId);
   if (debtIndex === -1) {
-    throw new Error('الديون مش كاينة / Dette introuvable / Debt not found');
+    throw new Error('الدين غير موجود / Dette introuvable / Debt not found');
   }
 
   const updatedDebt = {
@@ -426,13 +428,11 @@ export const updateDebtStatus = async (userId, debtId, updates) => {
   debts[debtIndex] = updatedDebt;
   saveToLocalStorage(userDebtsKey, debts);
 
-  // Log activity
   logUserActivity(userId, 'DEBT_UPDATED', {
     debtId,
     updates: Object.keys(updates).join(', ')
   });
 
-  // Trigger Android Capture
   triggerAndroidCapture('DEBT_UPDATED', {
     userId,
     debtId,
@@ -452,10 +452,8 @@ export const deleteDebt = async (userId, debtId) => {
   const filteredDebts = debts.filter(d => d.id !== debtId);
   saveToLocalStorage(userDebtsKey, filteredDebts);
 
-  // Log activity
   logUserActivity(userId, 'DEBT_DELETED', { debtId });
 
-  // Trigger Android Capture
   triggerAndroidCapture('DEBT_DELETED', {
     userId,
     debtId
@@ -464,13 +462,207 @@ export const deleteDebt = async (userId, debtId) => {
 
 /**
  * ============================================
- * ACTIVITY LOGGING
+ * REPORTS AND EXPORT FUNCTIONS
  * ============================================
  */
 
 /**
- * Log user activity
+ * Generate debt report as formatted string
  */
+export const generateDebtReport = (userId, language = 'ar') => {
+  const debts = fetchDebts(userId);
+  const stats = calculateStatistics(userId);
+  const user = getUserById(userId);
+
+  const formatDate = (dateString) => {
+    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    return new Date(dateString).toLocaleDateString(locale, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  const formatCurrency = (amount) => {
+    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: 'DZD',
+      minimumFractionDigits: 0
+    }).format(amount);
+  };
+
+  const headers = {
+    ar: {
+      title: 'تقرير الديون',
+      date: 'تاريخ التقرير',
+      user: 'المستخدم',
+      totalOwed: 'إجمالي المستحق لي',
+      totalOwe: 'إجمالي المتوجب عليّ',
+      paid: 'مدفوعة',
+      pending: 'معلقة',
+      overdue: 'متأخرة',
+      person: 'الشخص',
+      amount: 'المبلغ',
+      dueDate: 'تاريخ الاستحقاق',
+      status: 'الحالة',
+      type: 'النوع',
+      owedToMe: 'لي',
+      iOwe: 'عليّ',
+      scheduled: 'مجدول',
+      notScheduled: 'غير مجدول'
+    },
+    fr: {
+      title: 'Rapport des dettes',
+      date: 'Date du rapport',
+      user: 'Utilisateur',
+      totalOwed: 'Total à recevoir',
+      totalOwe: 'Total à payer',
+      paid: 'Payées',
+      pending: 'En attente',
+      overdue: 'En retard',
+      person: 'Personne',
+      amount: 'Montant',
+      dueDate: "Date d'échéance",
+      status: 'Statut',
+      type: 'Type',
+      owedToMe: 'À recevoir',
+      iOwe: 'À payer',
+      scheduled: 'Programmé',
+      notScheduled: 'Non programmé'
+    },
+    en: {
+      title: 'Debts Report',
+      date: 'Report Date',
+      user: 'User',
+      totalOwed: 'Total Owed to Me',
+      totalOwe: 'Total I Owe',
+      paid: 'Paid',
+      pending: 'Pending',
+      overdue: 'Overdue',
+      person: 'Person',
+      amount: 'Amount',
+      dueDate: 'Due Date',
+      status: 'Status',
+      type: 'Type',
+      owedToMe: 'Owed to Me',
+      iOwe: 'I Owe',
+      scheduled: 'Scheduled',
+      notScheduled: 'Not Scheduled'
+    }
+  };
+
+  const h = headers[language] || headers.ar;
+
+  let report = `═══════════════════════════════════════════════════════════════\n`;
+  report += `                        ${h.title}\n`;
+  report += `═══════════════════════════════════════════════════════════════\n\n`;
+  report += `${h.date}: ${formatDate(new Date().toISOString())}\n`;
+  report += `${h.user}: ${user?.name || user?.email || 'Unknown'}\n\n`;
+  report += `───────────────────────────────────────────────────────────────\n`;
+  report += `                         ${language === 'ar' ? 'الملخص' : language === 'fr' ? 'Résumé' : 'Summary'}\n`;
+  report += `───────────────────────────────────────────────────────────────\n`;
+  report += `${h.totalOwed}: ${formatCurrency(stats.totalOwedToMe)}\n`;
+  report += `${h.totalOwe}: ${formatCurrency(stats.totalIOwe)}\n`;
+  report += `${h.paid}: ${stats.paidDebtsCount}\n`;
+  report += `${h.pending}: ${stats.pendingDebtsCount}\n`;
+  report += `${h.overdue}: ${stats.overdueDebts.length}\n\n`;
+
+  if (debts.length > 0) {
+    report += `═══════════════════════════════════════════════════════════════\n`;
+    report += `                     ${language === 'ar' ? 'تفاصيل الديون' : language === 'fr' ? 'Détails des dettes' : 'Debt Details'}\n`;
+    report += `═══════════════════════════════════════════════════════════════\n\n`;
+
+    debts.forEach((debt, index) => {
+      report += `───────────────────────────────────────────────────────────────\n`;
+      report += `${index + 1}. ${debt.personName}\n`;
+      report += `───────────────────────────────────────────────────────────────\n`;
+      report += `   ${h.type}: ${debt.type === 'owed_to_me' ? h.owedToMe : h.iOwe}\n`;
+      report += `   ${h.amount}: ${formatCurrency(debt.amount)} (${debt.currency})\n`;
+      report += `   ${h.dueDate}: ${formatDate(debt.dueDate)}\n`;
+      report += `   ${h.status}: ${debt.status === 'paid' ? h.paid : debt.status === 'pending' ? h.pending : h.overdue}\n`;
+      if (debt.isScheduled) {
+        report += `   ${h.scheduled}: ${h.yes || 'نعم'} (${debt.installmentsCount} ${language === 'ar' ? 'دفعات' : language === 'fr' ? 'versements' : 'installments'})\n`;
+      }
+      if (debt.notes) {
+        report += `   ${language === 'ar' ? 'ملاحظات' : language === 'fr' ? 'Notes' : 'Notes'}: ${debt.notes}\n`;
+      }
+      report += `\n`;
+    });
+  }
+
+  report += `═══════════════════════════════════════════════════════════════\n`;
+  report += `              Debts Manager - ${new Date().getFullYear()}\n`;
+  report += `═══════════════════════════════════════════════════════════════\n`;
+
+  return report;
+};
+
+/**
+ * Export debts as CSV
+ */
+export const exportDebtsAsCSV = (userId) => {
+  const debts = fetchDebts(userId);
+
+  const headers = ['Person Name', 'Type', 'Amount', 'Currency', 'Due Date', 'Status', 'Phone', 'Notes', 'Is Scheduled', 'Installments', 'Created At'];
+  const rows = debts.map(d => [
+    `"${d.personName}"`,
+    d.type,
+    d.amount,
+    d.currency,
+    d.dueDate,
+    d.status,
+    `"${d.phone || ''}"`,
+    `"${(d.notes || '').replace(/"/g, '""')}"`,
+    d.isScheduled ? 'Yes' : 'No',
+    d.installmentsCount || 0,
+    d.createdAt
+  ]);
+
+  return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+};
+
+/**
+ * Download report as file
+ */
+export const downloadReport = (userId, language = 'ar', format = 'txt') => {
+  let content, filename, mimeType;
+
+  if (format === 'csv') {
+    content = exportDebtsAsCSV(userId);
+    filename = `debts_report_${new Date().toISOString().split('T')[0]}.csv`;
+    mimeType = 'text/csv';
+  } else {
+    content = generateDebtReport(userId, language);
+    filename = `debts_report_${new Date().toISOString().split('T')[0]}.txt`;
+    mimeType = 'text/plain';
+  }
+
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+
+  triggerAndroidCapture('REPORT_DOWNLOADED', {
+    userId,
+    format,
+    filename
+  });
+
+  return { filename, size: blob.size };
+};
+
+/**
+ * ============================================
+ * ACTIVITY LOGGING
+ * ============================================
+ */
+
 export const logUserActivity = (userId, action, details) => {
   const userActivitiesKey = `user_${userId}_activities`;
   const activities = loadFromLocalStorage(userActivitiesKey, []);
@@ -483,15 +675,11 @@ export const logUserActivity = (userId, action, details) => {
   };
 
   activities.unshift(newActivity);
-  // Keep last 100 activities
   saveToLocalStorage(userActivitiesKey, activities.slice(0, 100));
 
   return newActivity;
 };
 
-/**
- * Get user activities
- */
 export const getUserActivities = (userId, limit = 20) => {
   const userActivitiesKey = `user_${userId}_activities`;
   const activities = loadFromLocalStorage(userActivitiesKey, []);
@@ -504,9 +692,6 @@ export const getUserActivities = (userId, limit = 20) => {
  * ============================================
  */
 
-/**
- * Get admin statistics
- */
 export const getAdminStats = () => {
   const users = loadFromLocalStorage('registeredUsers', []);
 
@@ -537,9 +722,6 @@ export const getAdminStats = () => {
   };
 };
 
-/**
- * Get all users (admin only)
- */
 export const getAllUsers = () => {
   const users = loadFromLocalStorage('registeredUsers', []);
   return users.map(u => {
@@ -548,9 +730,6 @@ export const getAllUsers = () => {
   });
 };
 
-/**
- * Toggle user status (admin only)
- */
 export const toggleUserStatus = (userId, active) => {
   const users = loadFromLocalStorage('registeredUsers', []);
   const updatedUsers = users.map(u =>
@@ -561,15 +740,11 @@ export const toggleUserStatus = (userId, active) => {
   triggerAndroidCapture('USER_STATUS_CHANGED', { userId, active });
 };
 
-/**
- * Delete user (admin only)
- */
 export const deleteUser = (userId) => {
   const users = loadFromLocalStorage('registeredUsers', []);
   const filtered = users.filter(u => u.id !== userId);
   saveToLocalStorage('registeredUsers', filtered);
 
-  // Also delete user's data
   localStorage.removeItem(`user_${userId}_debts`);
   localStorage.removeItem(`user_${userId}_activities`);
 
@@ -582,9 +757,6 @@ export const deleteUser = (userId) => {
  * ============================================
  */
 
-/**
- * Calculate user statistics
- */
 export const calculateStatistics = (userId) => {
   const debts = fetchDebts(userId);
 
@@ -609,15 +781,55 @@ export const calculateStatistics = (userId) => {
     ? Math.round((paidDebts / debts.length) * 100)
     : 0;
 
+  const scheduledDebts = debts.filter(d => d.isScheduled);
+  const totalScheduledAmount = scheduledDebts.reduce((sum, d) => sum + d.amount, 0);
+
+  const monthlyStats = calculateMonthlyStatistics(debts);
+
   return {
     totalOwedToMe,
     totalIOwe,
     paidDebtsCount: paidDebts,
     pendingDebtsCount: pendingDebts,
     overdueDebts,
+    overdueCount: overdueDebts.length,
     paidRatio,
-    totalDebts: debts.length
+    totalDebts: debts.length,
+    scheduledDebtsCount: scheduledDebts.length,
+    totalScheduledAmount,
+    monthlyStats
   };
+};
+
+/**
+ * Calculate monthly statistics for charts
+ */
+const calculateMonthlyStatistics = (debts) => {
+  const months = [];
+  const now = new Date();
+
+  for (let i = 5; i >= 0; i--) {
+    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+
+    const monthDebts = debts.filter(d => {
+      const created = new Date(d.createdAt);
+      return created >= date && created <= monthEnd;
+    });
+
+    const monthPaid = monthDebts.filter(d => d.status === 'paid').length;
+    const monthTotal = monthDebts.length;
+
+    months.push({
+      month: date.toLocaleDateString('en', { month: 'short' }),
+      year: date.getFullYear(),
+      added: monthTotal,
+      paid: monthPaid,
+      total: monthDebts.reduce((sum, d) => sum + d.amount, 0)
+    });
+  }
+
+  return months;
 };
 
 // Export service object
@@ -640,7 +852,10 @@ const neonService = {
   getAllUsers,
   toggleUserStatus,
   deleteUser,
-  calculateStatistics
+  calculateStatistics,
+  generateDebtReport,
+  exportDebtsAsCSV,
+  downloadReport
 };
 
 export default neonService;

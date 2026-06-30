@@ -13,7 +13,9 @@ import {
   Phone,
   Trash2,
   AlertCircle,
-  Info
+  Info,
+  Clock,
+  Repeat
 } from 'lucide-react';
 import { currencies } from '../i18n/translations.jsx';
 
@@ -38,11 +40,17 @@ export default function DebtForm() {
     currency: 'DZD',
     dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     notes: '',
-    status: 'pending'
+    status: 'pending',
+    isScheduled: false,
+    scheduleType: 'monthly',
+    installmentsCount: '',
+    firstPaymentDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    scheduleData: null
   });
 
   const [errors, setErrors] = useState({});
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showScheduleCard, setShowScheduleCard] = useState(false);
 
   // Load existing debt data for editing
   useEffect(() => {
@@ -55,8 +63,16 @@ export default function DebtForm() {
         currency: existingDebt.currency || 'DZD',
         dueDate: existingDebt.dueDate.split('T')[0],
         notes: existingDebt.notes || '',
-        status: existingDebt.status
+        status: existingDebt.status,
+        isScheduled: existingDebt.isScheduled || false,
+        scheduleType: existingDebt.scheduleType || 'monthly',
+        installmentsCount: existingDebt.installmentsCount?.toString() || '',
+        firstPaymentDate: existingDebt.firstPaymentDate
+          ? existingDebt.firstPaymentDate.split('T')[0]
+          : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        scheduleData: existingDebt.scheduleData || null
       });
+      setShowScheduleCard(existingDebt.isScheduled || false);
     }
   }, [existingDebt]);
 
@@ -92,7 +108,11 @@ export default function DebtForm() {
     try {
       const debtData = {
         ...formData,
-        amount: parseFloat(formData.amount)
+        amount: parseFloat(formData.amount),
+        isScheduled: showScheduleCard,
+        scheduleType: showScheduleCard ? formData.scheduleType : null,
+        installmentsCount: showScheduleCard ? parseInt(formData.installmentsCount) || 0 : 0,
+        firstPaymentDate: showScheduleCard ? formData.firstPaymentDate : null
       };
 
       if (isEditing) {
@@ -339,6 +359,127 @@ export default function DebtForm() {
             rows={4}
             placeholder={language === 'ar' ? 'أي ملاحظات إضافية...' : language === 'fr' ? 'Remarques...' : 'Any notes...'}
           />
+        </div>
+
+        {/* Scheduling/Installment Card */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
+          {/* Toggle Switch Header */}
+          <button
+            type="button"
+            onClick={() => setShowScheduleCard(!showScheduleCard)}
+            className="w-full px-5 py-4 flex items-center gap-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition border-b border-gray-100 dark:border-gray-700"
+          >
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+              showScheduleCard ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-gray-100 dark:bg-gray-700'
+            }`}>
+              <Repeat className={`w-6 h-6 ${showScheduleCard ? 'text-blue-500' : 'text-gray-400'}`} />
+            </div>
+            <div className="flex-1 text-start">
+              <p className="font-bold text-gray-900 dark:text-white">
+                {language === 'ar' ? 'جدولة الدين والتقسيط' : language === 'fr' ? 'Planification et versements' : 'Debt Scheduling & Installments'}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {showScheduleCard
+                  ? (language === 'ar' ? 'مفعّل - اضغط للتعطيل' : language === 'fr' ? 'Activé' : 'Enabled')
+                  : (language === 'ar' ? 'اختياري - اضغط للتفعيل' : language === 'fr' ? 'Optionnel - Appuyez pour activer' : 'Optional - Tap to enable')}
+              </p>
+            </div>
+            <div className={`w-14 h-8 rounded-full transition-colors ${
+              showScheduleCard ? 'bg-blue-500' : 'bg-gray-300'
+            } relative flex-shrink-0`}>
+              <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-transform ${
+                showScheduleCard ? 'translate-x-7' : 'translate-x-1'
+              }`} />
+            </div>
+          </button>
+
+          {/* Schedule Fields (shown when toggle is on) */}
+          {showScheduleCard && (
+            <div className="p-5 space-y-4 animate-in slide-in-from-top-2 duration-200">
+              {/* Schedule Type */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  {language === 'ar' ? 'نوع الجدولة / التكرار' : language === 'fr' ? 'Type de planification' : 'Schedule Type'}
+                  <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { value: 'daily', labelAr: 'يومي', labelFr: 'Quotidien', labelEn: 'Daily' },
+                    { value: 'weekly', labelAr: 'أسبوعي', labelFr: 'Hebdo', labelEn: 'Weekly' },
+                    { value: 'monthly', labelAr: 'شهري', labelFr: 'Mensuel', labelEn: 'Monthly' },
+                    { value: 'specific', labelAr: 'تاريخ محدد', labelFr: 'Date fixe', labelEn: 'Specific' }
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleChange('scheduleType', option.value)}
+                      className={`py-3 px-2 rounded-xl border-2 transition-all text-center text-sm font-medium ${
+                        formData.scheduleType === option.value
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                          : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-blue-300'
+                      }`}
+                    >
+                      {language === 'ar' ? option.labelAr : language === 'fr' ? option.labelFr : option.labelEn}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Installments Count */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3">
+                  {language === 'ar' ? 'عدد الدفعات' : language === 'fr' ? 'Nombre de versements' : 'Number of Installments'}
+                  <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  value={formData.installmentsCount}
+                  onChange={(e) => handleChange('installmentsCount', e.target.value)}
+                  className="w-full px-4 py-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder-gray-400"
+                  placeholder={language === 'ar' ? 'مثال: 12' : language === 'fr' ? 'Ex: 12' : 'e.g., 12'}
+                  min="1"
+                  max="99"
+                />
+                {formData.amount && formData.installmentsCount && (
+                  <p className="mt-2 text-sm text-blue-600 dark:text-blue-400 font-medium">
+                    {language === 'ar'
+                      ? `قيمة القسط: ${(parseFloat(formData.amount) / (parseInt(formData.installmentsCount) || 1)).toFixed(2)} ${formData.currency}`
+                      : language === 'fr'
+                      ? `Montant par versement: ${(parseFloat(formData.amount) / (parseInt(formData.installmentsCount) || 1)).toFixed(2)} ${formData.currency}`
+                      : `Installment amount: ${(parseFloat(formData.amount) / (parseInt(formData.installmentsCount) || 1)).toFixed(2)} ${formData.currency}`}
+                  </p>
+                )}
+              </div>
+
+              {/* First Payment Date */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                  <Calendar className="w-4 h-4" />
+                  {language === 'ar' ? 'تاريخ الدفعة الأولى' : language === 'fr' ? 'Date du premier versement' : 'First Payment Date'}
+                  <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={formData.firstPaymentDate}
+                  onChange={(e) => handleChange('firstPaymentDate', e.target.value)}
+                  className="w-full px-4 py-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                />
+              </div>
+
+              {/* Info Note */}
+              <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
+                <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  {language === 'ar'
+                    ? 'سيتم إنشاء جدول دفعات تلقائي بناءً على الإعدادات أعلاه، ويمكنك تتبع الدفعات المدفوعة والمتبقية من تفاصيل الدين.'
+                    : language === 'fr'
+                    ? 'Un calendrier de paiement sera automatiquement créé. Vous pourrez suivre les versements payés et restants.'
+                    : 'A payment schedule will be automatically created. You can track paid and remaining installments from debt details.'}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Submit Button */}

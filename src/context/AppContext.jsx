@@ -16,6 +16,7 @@ import neonService, {
   toggleUserStatus,
   deleteUser,
   calculateStatistics,
+  downloadReport,
   isNeonConfigured
 } from '../services/neonService.js';
 import { translations } from '../i18n/translations.jsx';
@@ -294,6 +295,9 @@ export function AppProvider({ children }) {
 
     // Android capture
     triggerAndroidCapture,
+
+    // Reports
+    downloadReport,
 
     // Neon service status
     isNeonConfigured: isNeonConfigured()

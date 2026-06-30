@@ -17,7 +17,8 @@ import {
   ChevronLeft,
   Activity,
   Wallet,
-  MessageCircle
+  MessageCircle,
+  BarChart3
 } from 'lucide-react';
 
 /**
@@ -259,6 +260,19 @@ export default function Home() {
               <DollarSign className="w-6 h-6 text-blue-500" />
             </div>
             <span className="text-gray-700 dark:text-gray-300 text-xs font-medium">{t('debts')}</span>
+          </button>
+
+          {/* Statistics Button */}
+          <button
+            onClick={() => navigate('/statistics')}
+            className="flex-shrink-0 flex flex-col items-center justify-center w-24 h-28 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl shadow-lg hover:shadow-xl transition-all group"
+          >
+            <div className="w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center mb-2 group-hover:scale-110 transition">
+              <BarChart3 className="w-6 h-6 text-white" />
+            </div>
+            <span className="text-white text-xs font-medium">
+              {language === 'ar' ? 'إحصائيات' : language === 'fr' ? 'Stats' : 'Statistics'}
+            </span>
           </button>
 
           {/* People Button */}

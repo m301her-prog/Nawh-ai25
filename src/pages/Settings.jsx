@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -14,7 +15,10 @@ import {
   User,
   Shield,
   Info,
-  HelpCircle
+  HelpCircle,
+  Download,
+  FileText,
+  FileSpreadsheet
 } from 'lucide-react';
 
 /**
@@ -35,9 +39,11 @@ export default function Settings() {
     setWhatsappEnabled,
     logout,
     requestNotificationPermission,
-    showNotification
+    showNotification,
+    downloadReport
   } = useApp();
   const navigate = useNavigate();
+  const [showFormatModal, setShowFormatModal] = useState(false);
 
   const handleNotificationToggle = async () => {
     if (!notificationsEnabled) {
@@ -284,6 +290,34 @@ export default function Settings() {
           </button>
         </div>
 
+        {/* Download Reports Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+            <h3 className="font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider">
+              {language === 'ar' ? 'التقارير والتصدير' : language === 'fr' ? 'Rapports et export' : 'Reports & Export'}
+            </h3>
+          </div>
+
+          {/* Download Reports Button */}
+          <button
+            onClick={() => setShowFormatModal(true)}
+            className="w-full px-5 py-4 flex items-center gap-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+          >
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
+              <Download className="w-6 h-6 text-blue-500" />
+            </div>
+            <div className="flex-1 text-start">
+              <p className="font-bold text-gray-900 dark:text-white">
+                {language === 'ar' ? 'تحميل وصلات وكشوفات الديون' : language === 'fr' ? 'Telecharger les rapports' : 'Download Debt Reports'}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {language === 'ar' ? 'تصدير TXT أو CSV' : language === 'fr' ? 'Exporter en TXT ou CSV' : 'Export as TXT or CSV'}
+              </p>
+            </div>
+            <ChevronRight className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
         {/* Logout Button */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
           <button
@@ -316,6 +350,84 @@ export default function Settings() {
           {t('clearData')}
         </button>
       </div>
+
+      {/* Format Selection Modal */}
+      {showFormatModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-4 mb-6">
+              <div className="w-14 h-14 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                <Download className="w-7 h-7 text-blue-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-lg text-gray-900 dark:text-white">
+                  {language === 'ar' ? 'تحميل التقرير' : language === 'fr' ? 'Telecharger le rapport' : 'Download Report'}
+                </h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {language === 'ar' ? 'اختر صيغة الملف' : language === 'fr' ? 'Choisir le format' : 'Choose file format'}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3 mb-6">
+              {/* TXT Format */}
+              <button
+                onClick={() => {
+                  downloadReport(user.id, language, 'txt');
+                  setShowFormatModal(false);
+                  showNotification(
+                    language === 'ar' ? 'تم تحميل التقرير بصيغة TXT' : language === 'fr' ? 'Rapport TXT telecharge' : 'TXT report downloaded',
+                    'success'
+                  );
+                }}
+                className="w-full p-4 rounded-xl bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition flex items-center gap-4"
+              >
+                <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
+                  <FileText className="w-6 h-6 text-emerald-500" />
+                </div>
+                <div className="flex-1 text-start">
+                  <p className="font-bold text-gray-900 dark:text-white">TXT</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {language === 'ar' ? 'ملف نصي بسيط' : language === 'fr' ? 'Fichier texte simple' : 'Simple text file'}
+                  </p>
+                </div>
+                <Download className="w-5 h-5 text-gray-400" />
+              </button>
+
+              {/* CSV Format */}
+              <button
+                onClick={() => {
+                  downloadReport(user.id, language, 'csv');
+                  setShowFormatModal(false);
+                  showNotification(
+                    language === 'ar' ? 'تم تحميل التقرير بصيغة CSV' : language === 'fr' ? 'Rapport CSV telecharge' : 'CSV report downloaded',
+                    'success'
+                  );
+                }}
+                className="w-full p-4 rounded-xl bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition flex items-center gap-4"
+              >
+                <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                  <FileSpreadsheet className="w-6 h-6 text-blue-500" />
+                </div>
+                <div className="flex-1 text-start">
+                  <p className="font-bold text-gray-900 dark:text-white">CSV</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {language === 'ar' ? 'جدول بيانات' : language === 'fr' ? 'Tableur' : 'Spreadsheet format'}
+                  </p>
+                </div>
+                <Download className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            <button
+              onClick={() => setShowFormatModal(false)}
+              className="w-full py-3.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+            >
+              {t('cancel')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
