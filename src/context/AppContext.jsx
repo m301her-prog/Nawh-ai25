@@ -98,60 +98,62 @@ export function AppProvider({ children }) {
   const login = async (email, password) => {
     setLoading(true);
     try {
-      let authenticatedUser = null;
+      // 1. استدعاء الـ API السحابي الجديد لتسجيل الدخول مباشرة وجلب بيانات الحساب
+      const response = await fetch('https://nawh-ai25.vercel.app/api/login-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-      // 1. المطابقة والتحقق عبر سيرفر Neon (جدول app_users) بشكل أساسي وحصري
-      if (isNeonConfigured()) {
-        const serverResult = await neonService.executeQuery(
-          `SELECT id, name, email, phone, is_admin AS "isAdmin", active FROM app_users WHERE LOWER(email) = LOWER($1) AND password = $2 LIMIT 1`,
-          [email.trim(), password]
-        );
+      const data = await response.json();
 
-        const rows = serverResult?.rows || serverResult || [];
-
-        if (rows && rows.length > 0) {
-          const serverUser = rows[0];
-
-          // التحقق من حالة تفعيل الحساب
-          if (serverUser.active === false || serverUser.active === 'false') {
-            throw new Error(language === 'ar' ? 'تم غلق هذا الحساب مؤقتاً، يرجى التواصل مع الإدارة' : 'Account suspended');
-          }
-
-          authenticatedUser = {
-            id: serverUser.id,
-            name: serverUser.name,
-            email: serverUser.email,
-            phone: serverUser.phone || '',
-            isAdmin: serverUser.isAdmin || serverUser.email === 'admin@debts.dz',
-            createdAt: new Date().toISOString()
-          };
-
-          // زرع وتأمين الحساب في الـ LocalStorage فوراً لمنع أي تعارض في الـ Service بعد حذف التطبيق
-          const localUsers = loadFromLocalStorage('registeredUsers', []);
-          const existingUserIndex = localUsers.findIndex(u => u.email.toLowerCase() === email.toLowerCase().trim());
-          
-          if (existingUserIndex === -1) {
-            localUsers.push({ ...authenticatedUser, password: password });
-          } else {
-            localUsers[existingUserIndex] = { ...localUsers[existingUserIndex], ...authenticatedUser, password: password };
-          }
-          saveToLocalStorage('registeredUsers', localUsers);
-        }
+      if (!response.ok) {
+        throw new Error(data.error || 'فشلت عملية تسجيل الدخول عبر الـ API');
       }
 
-      // 2. التحقق النهائي من وجود الحساب المسترجع من السيرفر
-      if (!authenticatedUser) {
-        throw new Error(language === 'ar' ? 'المعلومات خاطئة أو الحساب غير موجود' : 'Invalid credentials');
+      const serverUser = data.user;
+
+      // التحقق من حالة تفعيل الحساب المسترجع من السيرفر
+      if (serverUser.active === false || serverUser.active === 'false') {
+        throw new Error(language === 'ar' ? 'تم غلق هذا الحساب مؤقتاً، يرجى التواصل مع الإدارة' : 'Account suspended');
       }
 
-      // تهيئة مفاتيح الجداول المحلية للمستخدم لضمان جهوزية الـ Service واستقبال البيانات مجدداً
+      // صياغة كائن المستخدم النهائي المتوافق مع التطبيق
+      const authenticatedUser = {
+        id: serverUser.id,
+        name: serverUser.name,
+        email: serverUser.email,
+        phone: serverUser.phone || '',
+        isAdmin: serverUser.isAdmin,
+        createdAt: new Date().toISOString()
+      };
+
+      // 2. تحديث وإعادة بناء قائمة الحسابات المحلية فوراً لإنهاء مشكلة حذف وتثبيت التطبيق
+      const localUsers = loadFromLocalStorage('registeredUsers', []);
+      const existingUserIndex = localUsers.findIndex(u => u.email.toLowerCase() === email.toLowerCase().trim());
+      
+      if (existingUserIndex === -1) {
+        localUsers.push({ ...authenticatedUser, password: password });
+      } else {
+        localUsers[existingUserIndex] = { ...localUsers[existingUserIndex], ...authenticatedUser, password: password };
+      }
+      saveToLocalStorage('registeredUsers', localUsers);
+
+      // تهيئة مفاتيح الجداول وجداول تخزين الديون والنشاطات المحلية للمستخدم المستعاد منعاً لأي تعارض
       saveToLocalStorage(`user_${authenticatedUser.id}_debts`, loadFromLocalStorage(`user_${authenticatedUser.id}_debts`, []));
       saveToLocalStorage(`user_${authenticatedUser.id}_activities`, loadFromLocalStorage(`user_${authenticatedUser.id}_activities`, []));
 
+      // 3. تحديث الستيت وحفظ الجلسة
       setUser(authenticatedUser);
       setIsAuthenticated(true);
-      setIsAdmin(authenticatedUser.isAdmin || email === 'admin@debts.dz');
+      setIsAdmin(authenticatedUser.isAdmin);
       saveToLocalStorage('currentUser', authenticatedUser);
+
+      // 4. إطلاق الكابتشور للأندرويد لإشعار محرك النظام الخارجي بنجاح العملية
+      triggerAndroidCapture('USER_LOGGED_IN', { userId: authenticatedUser.id, email: authenticatedUser.email });
+
       showNotification(t('loginSuccess'), 'success');
     } catch (error) {
       showNotification(error.message, 'error');
@@ -173,14 +175,12 @@ export function AppProvider({ children }) {
         body: JSON.stringify({ name, email, password, phone }),
       });
 
-      // قراءة النتيجة بمرونة لدعم كافة أشكال الاستجابة من السيرفر
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || 'فشلت عملية إنشاء الحساب عبر الـ API');
       }
 
-      // استخراج الـ userId بمرونة سواء كان راجعاً بشكل مباشر أو داخل مصفوفة rows
       const targetUserId = data.userId || data.id || (data.rows && data.rows[0]?.id) || 'usr_' + Date.now().toString(36);
 
       // الخطوة 2: بعد نجاح الـ API، نمرر المعرف لخدمة السيرفر لتهيئة جداول تخزين التطبيق محلياً وسحابياً
@@ -190,6 +190,10 @@ export function AppProvider({ children }) {
       setIsAuthenticated(true);
       setIsAdmin(newUser.isAdmin || false);
       saveToLocalStorage('currentUser', newUser);
+
+      // إطلاق الكابتشور للأندرويد عند التسجيل الجديد
+      triggerAndroidCapture('USER_REGISTERED', { userId: newUser.id, email: newUser.email });
+
       showNotification(t('registerSuccess'), 'success');
     } catch (error) {
       showNotification(error.message, 'error');
@@ -201,6 +205,8 @@ export function AppProvider({ children }) {
 
   const logout = async () => {
     if (user) {
+      // إطلاق الكابتشور للأندرويد لإشعار النظام قبل مسح الجلسة
+      triggerAndroidCapture('USER_LOGGED_OUT', { userId: user.id });
       await logoutUser(user.id);
     }
     setUser(null);
