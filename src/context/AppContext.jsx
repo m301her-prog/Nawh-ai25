@@ -98,7 +98,61 @@ export function AppProvider({ children }) {
   const login = async (email, password) => {
     setLoading(true);
     try {
-      const authenticatedUser = await authUser(email, password);
+      let authenticatedUser = null;
+
+      // 1. محاولة المطابقة عبر السيرفر من جدول الأمان الفعلي app_users لمزامنة حالة الحساب والدفع
+      if (isNeonConfigured()) {
+        const serverResult = await neonService.executeQuery(
+          `SELECT id, name, email, phone, is_admin AS "isAdmin", active FROM app_users WHERE LOWER(email) = LOWER($1) AND password = $2 LIMIT 1`,
+          [email.trim(), password]
+        );
+
+        const rows = serverResult?.rows || serverResult || [];
+
+        if (rows && rows.length > 0) {
+          const serverUser = rows[0];
+
+          // التحقق مما إذا كان الحساب قد تم إيقافه لعدم الدفع مثلاً
+          if (serverUser.active === false || serverUser.active === 'false') {
+            throw new Error(language === 'ar' ? 'تم غلق هذا الحساب مؤقتاً، يرجى التواصل مع الإدارة' : 'Account suspended');
+          }
+
+          authenticatedUser = {
+            id: serverUser.id,
+            name: serverUser.name,
+            email: serverUser.email,
+            phone: serverUser.phone || '',
+            isAdmin: serverUser.isAdmin || serverUser.email === 'admin@debts.dz',
+            createdAt: new Date().toISOString()
+          };
+
+          // تحديث قائمة الحسابات الموثقة محلياً لضمان عدم حدوث تعارض داخلي بالـ Service
+          const localUsers = loadFromLocalStorage('registeredUsers', []);
+          if (!localUsers.find(u => u.email.toLowerCase() === email.toLowerCase().trim())) {
+            localUsers.push({ ...authenticatedUser, password: password });
+            saveToLocalStorage('registeredUsers', localUsers);
+          }
+        }
+      }
+
+      // 2. كملجأ أخير في حال عدم توفر اتصال بالشبكة، المطابقة محلياً بالـ LocalStorage
+      if (!authenticatedUser) {
+        try {
+          authenticatedUser = await authUser(email, password);
+        } catch (localError) {
+          // لم يعثر عليه محلياً أيضاً
+        }
+      }
+
+      // 3. التحقق النهائي من وجود الحساب
+      if (!authenticatedUser) {
+        throw new Error(language === 'ar' ? 'المعلومات خاطئة أو الحساب غير موجود' : 'Invalid credentials');
+      }
+
+      // تهيئة مفاتيح الجداول المحلية للمستخدم لضمان جهوزية الـ Service
+      saveToLocalStorage(`user_${authenticatedUser.id}_debts`, loadFromLocalStorage(`user_${authenticatedUser.id}_debts`, []));
+      saveToLocalStorage(`user_${authenticatedUser.id}_activities`, loadFromLocalStorage(`user_${authenticatedUser.id}_activities`, []));
+
       setUser(authenticatedUser);
       setIsAuthenticated(true);
       setIsAdmin(authenticatedUser.isAdmin || email === 'admin@debts.dz');
