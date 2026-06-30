@@ -221,6 +221,7 @@ export function AppProvider({ children }) {
   const handleAddDebt = async (debtData) => {
     setLoading(true);
     try {
+      // يتم استقبال كائن debtData المحتوي على حقول الجدولة الجديدة وتمريره مباشرة بالكامل
       const newDebt = await addDebt(user.id, debtData);
       setDebts(prev => [newDebt, ...prev]);
       showNotification(t('debtAdded'), 'success');
@@ -236,6 +237,7 @@ export function AppProvider({ children }) {
   const handleUpdateDebt = async (id, updates) => {
     setLoading(true);
     try {
+      // يستقبل حقول التحديثات الممررة من الصفحات لتعديل الديون المجدولة أيضاً
       const updatedDebt = await updateDebtStatus(user.id, id, updates);
       setDebts(prev => prev.map(d => d.id === id ? updatedDebt : d));
       showNotification(t('debtUpdated'), 'success');
