@@ -134,7 +134,7 @@ export default function Home() {
           <div className="flex items-center gap-2">
             {/* Language Switcher */}
             <div className="flex bg-white/20 rounded-xl p-1 backdrop-blur-sm">
-              {['dz', 'fr', 'en'].map(lang => (
+              {['ar', 'fr', 'en'].map(lang => (
                 <button
                   key={lang}
                   onClick={() => setLanguage(lang)}
@@ -144,7 +144,7 @@ export default function Home() {
                       : 'text-white hover:bg-white/10'
                   }`}
                 >
-                  {lang === 'dz' ? 'DZ' : lang === 'fr' ? 'FR' : 'EN'}
+                  {lang === 'ar' ? 'AR' : lang === 'fr' ? 'FR' : 'EN'}
                 </button>
               ))}
             </div>
