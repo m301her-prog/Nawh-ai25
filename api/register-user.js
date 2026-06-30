@@ -14,10 +14,14 @@ if (!pool && process.env.DATABASE_URL) {
 }
 
 export default async function handler(req, res) {
-  // 1. إعدادات الـ CORS لتأمين اتصال التطبيقات والـ Mobile بالـ API
+  // 1. إعدادات الـ CORS الكاملة لتأمين اتصال المتصفحات والتطبيقات بدون مشاكل
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS, PATCH, DELETE, POST, PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
+  );
 
   // التعامل مع طلبات التحقق المسبق (Preflight OPTIONS)
   if (req.method === 'OPTIONS') {
@@ -49,6 +53,10 @@ export default async function handler(req, res) {
   }
 
   try {
+    // تنظيف وتجهيز المدخلات لمنع مشاكل تسجيل الدخول بسبب الفراغات أو حالة الأحرف
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanPassword = password.toString(); // نضمن معاملتها كنص دائماً
+
     // توليد معرف فريد تلقائي في حال لم يرسله الفرونت إند
     const finalId = id || `usr_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -60,9 +68,9 @@ export default async function handler(req, res) {
     
     const queryValues = [
       finalId,
-      name,
-      email.toLowerCase().trim(),
-      password,
+      name.trim(),
+      cleanEmail,
+      cleanPassword,
       phone || '',
       isAdmin || false,
       true
@@ -70,7 +78,7 @@ export default async function handler(req, res) {
 
     await pool.query(queryText, queryValues);
 
-    // إرجاع استجابة بنجاح العملية
+    // إرجاع استجابة بنجاح العملية متضمنة الـ userId
     return res.status(200).json({ 
       success: true, 
       message: 'تم حفظ بيانات تسجيل دخول العميل بنجاح في قاعدة البيانات.',
