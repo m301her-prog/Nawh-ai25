@@ -1,4 +1,16 @@
-import { neon } from '@neondatabase/serverless';
+import pg from 'pg';
+const { Pool } = pg;
+
+// إنشاء اتصال موحد يضمن عدم تكرار فتح الروابط في السيرفرلس
+let pool;
+if (!pool) {
+    pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+            rejectUnauthorized: false // مطلوب للاتصال الآمن بـ Neon
+        }
+    });
+}
 
 export default async function handler(request, response) {
     // إعدادات CORS
@@ -14,17 +26,17 @@ export default async function handler(request, response) {
     }
 
     try {
-        const sql = neon(process.env.DATABASE_URL);
-        
-        // جلب جميع البيانات من جدول products
-        const products = await sql`
+        // تنفيذ الاستعلام عبر مكتبة pg
+        const queryText = `
             SELECT * FROM products 
             ORDER BY created_at DESC;
         `;
+        const result = await pool.query(queryText);
 
+        // البيانات في مكتبة pg تعود دائماً داخل مصفوفة rows
         return response.status(200).json({ 
             success: true, 
-            data: products 
+            data: result.rows 
         });
 
     } catch (error) {
