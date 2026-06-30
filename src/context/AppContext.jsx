@@ -100,7 +100,7 @@ export function AppProvider({ children }) {
     try {
       let authenticatedUser = null;
 
-      // 1. محاولة المطابقة عبر السيرفر من جدول الأمان الفعلي app_users لمزامنة حالة الحساب والدفع
+      // 1. المطابقة والتحقق عبر سيرفر Neon (جدول app_users) بشكل أساسي وحصري
       if (isNeonConfigured()) {
         const serverResult = await neonService.executeQuery(
           `SELECT id, name, email, phone, is_admin AS "isAdmin", active FROM app_users WHERE LOWER(email) = LOWER($1) AND password = $2 LIMIT 1`,
@@ -112,7 +112,7 @@ export function AppProvider({ children }) {
         if (rows && rows.length > 0) {
           const serverUser = rows[0];
 
-          // التحقق مما إذا كان الحساب قد تم إيقافه لعدم الدفع مثلاً
+          // التحقق من حالة تفعيل الحساب
           if (serverUser.active === false || serverUser.active === 'false') {
             throw new Error(language === 'ar' ? 'تم غلق هذا الحساب مؤقتاً، يرجى التواصل مع الإدارة' : 'Account suspended');
           }
@@ -126,31 +126,20 @@ export function AppProvider({ children }) {
             createdAt: new Date().toISOString()
           };
 
-          // الحل هنا: تحديث أو إعادة بناء قائمة الحسابات الموثقة محلياً في الـ LocalStorage فوراً لمنع أي تعارض بعد حذف التطبيق
+          // زرع وتأمين الحساب في الـ LocalStorage فوراً لمنع أي تعارض في الـ Service بعد حذف التطبيق
           const localUsers = loadFromLocalStorage('registeredUsers', []);
           const existingUserIndex = localUsers.findIndex(u => u.email.toLowerCase() === email.toLowerCase().trim());
           
           if (existingUserIndex === -1) {
-            // إذا كان التطبيق قد حُذف وتم تثبيته من جديد، نعيد زرع الحساب محلياً بكامل بياناته
             localUsers.push({ ...authenticatedUser, password: password });
           } else {
-            // تحديث البيانات الحالية
             localUsers[existingUserIndex] = { ...localUsers[existingUserIndex], ...authenticatedUser, password: password };
           }
           saveToLocalStorage('registeredUsers', localUsers);
         }
       }
 
-      // 2. كملجأ أخير (في حال عدم توفر اتصال بالشبكة)، المطابقة محلياً بالـ LocalStorage
-      if (!authenticatedUser) {
-        try {
-          authenticatedUser = await authUser(email, password);
-        } catch (localError) {
-          // لم يعثر عليه محلياً أيضاً
-        }
-      }
-
-      // 3. التحقق النهائي من وجود الحساب
+      // 2. التحقق النهائي من وجود الحساب المسترجع من السيرفر
       if (!authenticatedUser) {
         throw new Error(language === 'ar' ? 'المعلومات خاطئة أو الحساب غير موجود' : 'Invalid credentials');
       }
