@@ -126,16 +126,22 @@ export function AppProvider({ children }) {
             createdAt: new Date().toISOString()
           };
 
-          // تحديث قائمة الحسابات الموثقة محلياً لضمان عدم حدوث تعارض داخلي بالـ Service
+          // الحل هنا: تحديث أو إعادة بناء قائمة الحسابات الموثقة محلياً في الـ LocalStorage فوراً لمنع أي تعارض بعد حذف التطبيق
           const localUsers = loadFromLocalStorage('registeredUsers', []);
-          if (!localUsers.find(u => u.email.toLowerCase() === email.toLowerCase().trim())) {
+          const existingUserIndex = localUsers.findIndex(u => u.email.toLowerCase() === email.toLowerCase().trim());
+          
+          if (existingUserIndex === -1) {
+            // إذا كان التطبيق قد حُذف وتم تثبيته من جديد، نعيد زرع الحساب محلياً بكامل بياناته
             localUsers.push({ ...authenticatedUser, password: password });
-            saveToLocalStorage('registeredUsers', localUsers);
+          } else {
+            // تحديث البيانات الحالية
+            localUsers[existingUserIndex] = { ...localUsers[existingUserIndex], ...authenticatedUser, password: password };
           }
+          saveToLocalStorage('registeredUsers', localUsers);
         }
       }
 
-      // 2. كملجأ أخير في حال عدم توفر اتصال بالشبكة، المطابقة محلياً بالـ LocalStorage
+      // 2. كملجأ أخير (في حال عدم توفر اتصال بالشبكة)، المطابقة محلياً بالـ LocalStorage
       if (!authenticatedUser) {
         try {
           authenticatedUser = await authUser(email, password);
@@ -149,7 +155,7 @@ export function AppProvider({ children }) {
         throw new Error(language === 'ar' ? 'المعلومات خاطئة أو الحساب غير موجود' : 'Invalid credentials');
       }
 
-      // تهيئة مفاتيح الجداول المحلية للمستخدم لضمان جهوزية الـ Service
+      // تهيئة مفاتيح الجداول المحلية للمستخدم لضمان جهوزية الـ Service واستقبال البيانات مجدداً
       saveToLocalStorage(`user_${authenticatedUser.id}_debts`, loadFromLocalStorage(`user_${authenticatedUser.id}_debts`, []));
       saveToLocalStorage(`user_${authenticatedUser.id}_activities`, loadFromLocalStorage(`user_${authenticatedUser.id}_activities`, []));
 
