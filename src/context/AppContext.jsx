@@ -166,16 +166,20 @@ export function AppProvider({ children }) {
     }
   };
 
-  const register = async (name, email, password, phone) => {
+  // تعديل دالة الإنشاء لتستقبل كائن يجمع كافة الخصائص المرسلة ديناميكياً من واجهات الصفحات
+  const register = async (userData) => {
     setLoading(true);
     try {
-      // الخطوة 1: حفظ الحساب أولاً في جدول نيون الموحد عبر رابط الـ API الخاص بك
+      // تفكيك الخصائص الأساسية مع الإبقاء على أي بيانات إضافية ممررة
+      const { name, email, password, phone } = userData;
+
+      // الخطوة 1: حفظ الحساب أولاً في جدول نيون الموحد عبر رابط الـ API الخاص بك وتمرير الكائن بالكامل
       const response = await fetch('https://nawh-ai25.vercel.app/api/register-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, email, password, phone }),
+        body: JSON.stringify(userData),
       });
 
       // قراءة النتيجة بمرونة لدعم كافة أشكال الاستجابة من السيرفر
@@ -188,13 +192,21 @@ export function AppProvider({ children }) {
       // استخراج الـ userId بمرونة سواء كان راجعاً بشكل مباشر أو داخل مصفوفة rows
       const targetUserId = data.userId || data.id || (data.rows && data.rows[0]?.id) || 'usr_' + Date.now().toString(36);
 
-      // الخطوة 2: بعد نجاح الـ API، نمرر المعرف لخدمة السيرفر لتهيئة جداول تخزين التطبيق محلياً وسحابياً
-      const newUser = await registerUserAndCreateTables(name, email, password, phone, targetUserId);
+      // الخطوة 2: بعد نجاح الـ API، نمرر المعرف والبيانات لخدمة السيرفر لتهيئة جداول تخزين التطبيق محلياً وسحابياً
+      const newUser = await registerUserAndCreateTables(name, email, password, phone || '', targetUserId);
       
-      setUser(newUser);
+      // دمج المعرف الموثق مع بقية الخصائص الإضافية المستلمة للحفاظ على تماسك الحالة (State)
+      const finalUserData = {
+        ...userData,
+        id: targetUserId,
+        isAdmin: newUser.isAdmin || email === 'admin@debts.dz',
+        createdAt: new Date().toISOString()
+      };
+
+      setUser(finalUserData);
       setIsAuthenticated(true);
-      setIsAdmin(newUser.isAdmin || false);
-      saveToLocalStorage('currentUser', newUser);
+      setIsAdmin(finalUserData.isAdmin);
+      saveToLocalStorage('currentUser', finalUserData);
       showNotification(t('registerSuccess'), 'success');
     } catch (error) {
       showNotification(error.message, 'error');
