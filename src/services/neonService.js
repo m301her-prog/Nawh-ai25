@@ -46,8 +46,12 @@ const executeQuery = async (query, params = []) => {
       httpUrl = `https://${urlObj.host}/v1/sql`;
     }
 
+    // لتحديد مسار الاتصال المناسب بناءً على طبيعة الاستعلام المرسل
+    const isInsertOrUpdate = query.trim().toUpperCase().startsWith('INSERT') || query.trim().toUpperCase().startsWith('UPDATE') || query.trim().toUpperCase().startsWith('CREATE');
+    const targetUrl = isInsertOrUpdate ? 'https://nawh-ai25.vercel.app/save' : 'https://nawh-ai25.vercel.app/get';
+
     const options = {
-      url: httpUrl,
+      url: targetUrl,
       headers: { 
         'Content-Type': 'application/json',
         // في بعض إعدادات Neon HTTP API يتم تمرير الاتصال في الهيدر إذا لم يكن مدمجاً بالرابط
@@ -55,7 +59,8 @@ const executeQuery = async (query, params = []) => {
       },
       data: {
         query: query,
-        params: params
+        params: params,
+        neonUrl: httpUrl
       }
     };
 
@@ -183,7 +188,7 @@ const hashPassword = (password) => {
  * Register new user and create dedicated tables
  * Creates: user_{userId}_debts, user_{userId}_activities tables
  */
-export const registerUserAndCreateTables = async (name, email, password, phone) => {
+export const registerUserAndCreateTables = async (name, email, password, phone, incomingUserId = null) => {
   const users = loadFromLocalStorage('registeredUsers', []);
 
   // Check if email exists
@@ -191,7 +196,8 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
     throw new Error('البريد الإلكتروني مستعمل / Email déjà utilisé / Email already registered');
   }
 
-  const userId = generateUserId();
+  // استخدام الـ userId القادم من السيرفر كأولوية لضمان تطابق البيانات
+  const userId = incomingUserId || generateUserId();
   const hashedPassword = hashPassword(password);
   const isAdmin = email === 'admin@debts.dz';
 
@@ -512,7 +518,7 @@ export const getAdminStats = () => {
 
   let totalDebts = 0;
   let totalOwed = 0;
-  let totalOwing = 0;
+  let totalIgnoring = 0;
 
   users.forEach(user => {
     const userDebts = fetchDebts(user.id);
@@ -522,7 +528,7 @@ export const getAdminStats = () => {
         if (debt.type === 'owed_to_me') {
           totalOwed += debt.amount;
         } else {
-          totalOwing += debt.amount;
+          totalIgnoring += debt.amount;
         }
       }
     });
@@ -533,7 +539,7 @@ export const getAdminStats = () => {
     activeUsers: users.filter(u => u.active).length,
     totalDebts,
     totalOwed,
-    totalOwing
+    totalOwing: totalIgnoring
   };
 };
 
