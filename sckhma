@@ -1,4 +1,4 @@
--- 1. دالة ذكية تقوم بإنشاء الجداول الافتراضية داخل السكيمّا الجديدة
+-- 1. دالة ذكية ومطورة لتهيئة جداول السكيمّا الجديدة وإصلاح أي حقول ناقصة تلقائياً
 CREATE OR REPLACE FUNCTION public.init_tenant_tables()
 RETURNS event_trigger AS $$
 DECLARE
@@ -10,7 +10,7 @@ BEGIN
         -- جلب اسم السكيمّا التي تم إنشاؤها للتو
         schema_name := obj.object_identity;
         
-        -- إنشاء جدول الديون داخل السكيمّا الجديدة تلقائياً
+        -- إنشاء جدول الديون داخل السكيمّا الجديدة تلقائياً (إذا لم يكن موجوداً)
         EXECUTE format('
             CREATE TABLE IF NOT EXISTS %I.debts (
                 id VARCHAR(50) PRIMARY KEY,
@@ -26,19 +26,32 @@ BEGIN
                 created_at VARCHAR(50) NOT NULL
             );', schema_name, 'pending');
 
-        -- إنشاء جدول المستخدمين داخل السكيمّا الجديدة تلقائياً
+        -- إنشاء جدول المستخدمين الكامل مع كل الحقول اللازمة لعمليات الـ API والباك اند (تجنباً للأخطاء)
         EXECUTE format('
             CREATE TABLE IF NOT EXISTS %I.users (
                 id VARCHAR(50) PRIMARY KEY,
                 name VARCHAR(255) NOT NULL,
                 email VARCHAR(255) NOT NULL,
+                password VARCHAR(255),
+                phone VARCHAR(50),
+                active BOOLEAN DEFAULT true,
+                is_admin BOOLEAN DEFAULT false,
                 created_at VARCHAR(50) NOT NULL
             );', schema_name);
+
+        -- صيانة وقائية وحقن ذكي: في حال وجود الجدول مسبقاً بدون الحقول المطلوبة، يتم زرعها فوراً منعاً للأخطاء
+        EXECUTE format('ALTER TABLE %I.users ADD COLUMN IF NOT EXISTS password VARCHAR(255);', schema_name);
+        EXECUTE format('ALTER TABLE %I.users ADD COLUMN IF NOT EXISTS phone VARCHAR(50);', schema_name);
+        EXECUTE format('ALTER TABLE %I.users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true;', schema_name);
+        EXECUTE format('ALTER TABLE %I.users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT false;', schema_name);
+        
     END LOOP;
 END;
 $$ LANGUAGE plpgsql;
 
--- 2. ربط الدالة بـ Event Trigger يراقب السيرفر
+-- 2. إسقاط الـ Trigger القديم لتجنب التعارض وتحديثه بالنسخة الجديدة
+DROP EVENT TRIGGER IF EXISTS trigger_on_schema_create;
+
 CREATE EVENT TRIGGER trigger_on_schema_create
 ON ddl_command_end
 WHEN tag IN ('CREATE SCHEMA')
