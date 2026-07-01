@@ -5,7 +5,6 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // 1. حل تحذير الـ SSL: دمج إعداد sslmode مباشرة في رابط الاتصال لمنع ظهور الـ Warning
   const baseConnectionString = process.env.DATABASE_URL;
   const separator = baseConnectionString.includes('?') ? '&' : '?';
   const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
@@ -28,8 +27,8 @@ export default async function handler(req, res) {
 
     await client.connect();
 
-    // التحقق من التكرار داخل الجدول الصحيح app_users
-    const checkUserQuery = 'SELECT id FROM app_users WHERE LOWER(email) = $1 LIMIT 1';
+    // الاستعلام بأحرف صغيرة
+    const checkUserQuery = 'select id from app_users where lower(email) = $1 limit 1';
     const checkResult = await client.query(checkUserQuery, [cleanEmail]);
 
     if (checkResult.rows.length > 0) {
@@ -40,10 +39,10 @@ export default async function handler(req, res) {
     const isAdmin = cleanEmail === 'admin@debts.dz';
     const createdAt = new Date().toISOString();
 
-    // 2. حل خطأ العمود: تعديل "isAdmin" إلى الاسم المطابق لقاعدتك is_admin
+    // جميع أسماء الأعمدة هنا مكتوبة بأحرف صغيرة تماماً (lowercase)
     const insertQuery = `
-      INSERT INTO app_users (id, name, email, password, phone, is_admin, active, "createdAt")
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      insert into app_users (id, name, email, password, phone, is_admin, active, created_at)
+      values ($1, $2, $3, $4, $5, $6, $7, $8)
     `;
     
     await client.query(insertQuery, [
@@ -66,7 +65,6 @@ export default async function handler(req, res) {
     console.error('Registration API Error:', error);
     return res.status(500).json({ error: 'حدث خطأ في الخادم أثناء إنشاء الحساب، يرجى المحاولة لاحقاً' });
   } finally {
-    // إغلاق الاتصال دائماً بأمان
     await client.end().catch(err => console.error('Error closing client:', err));
   }
 }
