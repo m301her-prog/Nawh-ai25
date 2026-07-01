@@ -24,8 +24,8 @@ export default async function handler(req, res) {
 
     await client.connect();
 
-    // البحث عن بيانات المستخدم داخل الجدول الصحيح app_users
-    const loginQuery = 'SELECT id, name, email, password, phone, "isAdmin", active FROM app_users WHERE LOWER(email) = $1 LIMIT 1';
+    // جلب العمود باسمه الصحيح من نيون "is_admin"
+    const loginQuery = 'SELECT id, name, email, password, phone, is_admin, active FROM app_users WHERE LOWER(email) = $1 LIMIT 1';
     const result = await client.query(loginQuery, [cleanEmail]);
 
     if (result.rows.length === 0) {
@@ -38,6 +38,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
     }
 
+    // إرجاع الخصائص بالأسماء التي يتوقعها كود الـ Frontend لديك (تصفية الحساب وتحويلها لـ isAdmin)
     return res.status(200).json({
       message: 'تم تسجيل الدخول بنجاح',
       user: {
@@ -45,7 +46,7 @@ export default async function handler(req, res) {
         name: dbUser.name,
         email: dbUser.email,
         phone: dbUser.phone || '',
-        isAdmin: dbUser.isAdmin === true || dbUser.isAdmin === 'true',
+        isAdmin: dbUser.is_admin === true || dbUser.is_admin === 'true',
         active: dbUser.active === true || dbUser.active === 'true'
       }
     });
