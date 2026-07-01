@@ -1,7 +1,7 @@
-import { neon } from '@neondatabase/serverless';
+import pg from 'pg';
 
 export default async function handler(req, res) {
-    // إعدادات الـ CORS
+    // 1. إعدادات CORS الكاملة لمنع حظر الطلبات من التطبيق أو المتصفح
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -9,55 +9,83 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
+    // 2. إعداد الاتصال بمكتبة pg وحل مشكلة تحذير الـ SSL
+    const baseConnectionString = process.env.DATABASE_URL;
+    const separator = baseConnectionString.includes('?') ? '&' : '?';
+    const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
+
+    const client = new pg.Client({
+        connectionString: finalConnectionString,
+        ssl: { 
+            rejectUnauthorized: false 
+        }
+    });
+
     try {
-        const sql = neon(process.env.DATABASE_URL);
-        const { action, data } = req.body; // نفترض أن البيانات تأتي داخل كائن باسم data
+        // تفكيك البيانات حسب ما يرسله الـ Context تماماً
+        const { userId, action, debt, debtId, updates } = req.body;
 
+        if (!userId) {
+            return res.status(400).json({ success: false, error: 'معرف المستخدم userId مطلوب' });
+        }
+
+        await client.connect();
+
+        // اسم جدول الديون الافتراضي بأحرف صغيرة: app_debts
         switch (action) {
-            case 'add_product':
-                await sql`INSERT INTO products (name, barcode, purchase_price, sale_price, stock_quantity) 
-                          VALUES (${data.name}, ${data.barcode}, ${data.purchase_price}, ${data.sale_price}, ${data.stock_quantity})`;
-                return res.status(200).json({ success: true });
+            case 'ADD':
+                const insertQuery = `
+                    INSERT INTO app_debts (id, user_id, title, amount, type, person_name, person_phone, due_date, status, notes, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                `;
+                await client.query(insertQuery, [
+                    debt.id,
+                    userId,
+                    debt.title,
+                    debt.amount,
+                    debt.type, // 'owed_to_me' أو 'i_owe'
+                    debt.personName,
+                    debt.personPhone || '',
+                    debt.dueDate || null,
+                    debt.status || 'pending',
+                    debt.notes || '',
+                    debt.createdAt || new Date().toISOString()
+                ]);
+                return res.status(200).json({ success: true, message: 'تم حفظ الدين بنجاح بسيرفر نيون' });
 
-            case 'add_supplier':
-                await sql`INSERT INTO suppliers (name, phone) VALUES (${data.name}, ${data.phone})`;
-                return res.status(200).json({ success: true });
-
-            case 'add_expense':
-                await sql`INSERT INTO expenses (description, amount, expense_date) 
-                          VALUES (${data.description}, ${data.amount}, ${data.expense_date})`;
-                return res.status(200).json({ success: true });
-
-            case 'add_sale':
-                // إضافة رأس الفاتورة ثم تفاصيلها
-                const saleResult = await sql`INSERT INTO sales_invoices (total_price, payment_method) 
-                                           VALUES (${data.total_price}, ${data.payment_method}) RETURNING id;`;
-                const invoiceId = saleResult[0].id;
+            case 'UPDATE':
+                if (!debtId || !updates) {
+                    return res.status(400).json({ success: false, error: 'بيانات التحديث debtId أو updates ناقصة' });
+                }
                 
-                // إدراج تفاصيل المبيعات (بفرض أن data.items مصفوفة)
-                for (const item of data.items) {
-                    await sql`INSERT INTO sale_items (invoice_id, product_id, quantity, price) 
-                              VALUES (${invoiceId}, ${item.product_id}, ${item.quantity}, ${item.price})`;
-                }
-                return res.status(200).json({ success: true, invoice_id: invoiceId });
+                // تحويل قيم الحالة للتوافق مع قاعدة البيانات
+                const queryStatus = updates.status; 
+                
+                const updateQuery = `
+                    UPDATE app_debts 
+                    SET status = $1
+                    WHERE id = $2 AND user_id = $3
+                `;
+                await client.query(updateQuery, [queryStatus, debtId, userId]);
+                return res.status(200).json({ success: true, message: 'تم تحديث حالة الدين بنجاح' });
 
-            case 'add_purchase':
-                // إضافة فاتورة مشتريات وتفاصيلها
-                const purchaseResult = await sql`INSERT INTO purchase_invoices (supplier_id, total_amount) 
-                                               VALUES (${data.supplier_id}, ${data.total_amount}) RETURNING id;`;
-                const purInvoiceId = purchaseResult[0].id;
-
-                for (const item of data.items) {
-                    await sql`INSERT INTO purchase_items (invoice_id, product_id, quantity, price) 
-                              VALUES (${purInvoiceId}, ${item.product_id}, ${item.quantity}, ${item.price})`;
+            case 'DELETE':
+                if (!debtId) {
+                    return res.status(400).json({ success: false, error: 'معرف الدين debtId مطلوب للحذف' });
                 }
-                return res.status(200).json({ success: true, invoice_id: purInvoiceId });
+                const deleteQuery = 'DELETE FROM app_debts WHERE id = $1 AND user_id = $2';
+                await client.query(deleteQuery, [debtId, userId]);
+                return res.status(200).json({ success: true, message: 'تم حذف الدين من السيرفر بنجاح' });
 
             default:
-                return res.status(400).json({ success: false, error: 'Action غير معروف' });
+                return res.status(400).json({ success: false, error: `العملية (${action}) غير مدعومة لمنصة الديون` });
         }
+
     } catch (error) {
-        console.error(error);
-        return res.status(500).json({ success: false, error: error.message });
+        console.error('DATABASE ERROR ON SAVE:', error);
+        return res.status(500).json({ success: false, error: 'فشل حفظ البيانات: ' + error.message });
+    } finally {
+        // إغلاق الاتصال بأمان دائماً
+        await client.end().catch(err => console.error('Error closing client:', err));
     }
 }
