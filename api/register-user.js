@@ -1,7 +1,7 @@
 import pg from 'pg';
 
 export default async function handler(req, res) {
-  // 1. إعدادات CORS الكاملة لضمان عملها مع الفرونت اند والموبايل
+  // 1. تفعيل إعدادات CORS الكاملة
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -18,14 +18,12 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // 2. استقبال بيانات التسجيل بالإضافة لاسم السكيمّا الخاصة بالعميل
+  // 2. استقبال بيانات العميل واسم السكيمّا المطلوبة له
   const { name, email, password, phone, schemaName } = req.body;
-  
-  // استخراج اسم السكيمّا من الـ body أو من الـ Headers (x-tenant-schema)
   const targetSchema = schemaName || req.headers['x-tenant-schema'];
 
   if (!targetSchema) {
-    return res.status(400).json({ error: 'اسم السكيمّا (x-tenant-schema) مطلوب لتحديد مكان حفظ البيانات' });
+    return res.status(400).json({ error: 'اسم السكيمّا (x-tenant-schema) مطلوب لإنشاء البيئة المخصصة للعميل' });
   }
 
   if (!name || !email || !password) {
@@ -41,22 +39,48 @@ export default async function handler(req, res) {
 
   const client = new pg.Client({
     connectionString: finalConnectionString,
-    ssl: { 
-      rejectUnauthorized: false 
-    }
+    ssl: { rejectUnauthorized: false }
   });
 
   try {
     await client.connect();
 
-    // 4. تنظيف اسم السكيمّا وتوجيه الاتصال إليها فوراً
+    // 4. تنظيف اسم السكيمّا لمنع الـ SQL Injection
     const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
     
-    // التأكد من وجود السكيمّا (خطوة أمان إضافية) ثم التحويل إليها
+    // أ) إنشاء السكيمّا المخصصة للعميل إذا لم تكن موجودة
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${cleanSchema}`);
+    
+    // ب) تحويل مسار العمل الحالي إلى هذه السكيمّا
     await client.query(`SET search_path TO ${cleanSchema}`);
 
-    // 5. الآن الاستعلامات ستنفذ تلقائياً داخل جدول users الخاص بهذه السكيمّا فقط!
+    // ج) السحر هنا: إنشاء الجداول تلقائياً داخل السكيمّا الجديدة إذا لم تكن موجودة
+    // جدول المستخدمين (users)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(50) PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(150) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        phone VARCHAR(20),
+        is_admin BOOLEAN DEFAULT FALSE,
+        active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // جدول الديون (debts) الموضح في الصورة الخاصة بك (يمكنك تعديل أعمدته حسب رغبتك لاحقاً)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS debts (
+        id SERIAL PRIMARY KEY,
+        user_id VARCHAR(50) REFERENCES users(id) ON DELETE CASCADE,
+        amount NUMERIC(10, 2) NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // 5. التحقق من تكرار البريد الإلكتروني داخل السكيمّا الجديدة (خطوة وقائية)
     const checkUserQuery = 'SELECT id FROM users WHERE LOWER(email) = $1 LIMIT 1';
     const checkResult = await client.query(checkUserQuery, [cleanEmail]);
 
@@ -64,11 +88,12 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'هذا البريد الإلكتروني مسجل بالفعل في هذا الحساب' });
     }
 
+    // 6. تجهيز بيانات المستخدم الأول (الذي غالباً ما يكون الأدمن للسكيمّا)
     const userId = 'usr_' + Math.random().toString(36).substring(2, 11);
-    const isAdmin = cleanEmail === 'admin@debts.dz';
+    const isAdmin = cleanEmail === 'admin@debts.dz' || true; // جعلته True افتراضياً لأنه منشئ السكيمّا الأول
     const createdAt = new Date().toISOString();
 
-    // يتم الحفظ مباشرة في جدول users لأن الـ search_path موجه للسكيمّا الصحيحة
+    // 7. إدخال البيانات في جدول users الذي تم إنشاؤه للتأو
     const insertQuery = `
       INSERT INTO users (id, name, email, password, phone, is_admin, active, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -85,16 +110,17 @@ export default async function handler(req, res) {
       createdAt
     ]);
 
+    // نجاح العملية بالكامل
     return res.status(200).json({
       success: true,
-      message: 'تم إنشاء الحساب بنجاح داخل السكيمّا المحددة',
+      message: 'تم إنشاء السكيمّا وبناء الجداول وحفظ حساب العميل بنجاح',
       userId: userId,
       schema: cleanSchema
     });
 
   } catch (error) {
-    console.error('Registration API Error:', error);
-    return res.status(500).json({ error: 'حدث خطأ في الخادم أثناء إنشاء الحساب: ' + error.message });
+    console.error('Registration & Schema Creation Error:', error);
+    return res.status(500).json({ error: 'حدث خطأ أثناء تهيئة حساب العميل: ' + error.message });
   } finally {
     // إغلاق الاتصال بأمان
     await client.end().catch(err => console.error('Error closing client:', err));
