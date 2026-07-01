@@ -183,8 +183,8 @@ export function AppProvider({ children }) {
   const register = async (name, email, password, phone) => {
     setLoading(true);
     try {
-      // اشتقاق اسم السكيمّا تلقائياً من البريد الإلكتروني لتجنب الخطأ الظاهر بالصورة تماماً
-      const generatedSchema = 'schema_' + email.toLowerCase().trim().replace(/[^a-zA-Z0-9]/g, '_');
+      // تعديل: اشتقاق اسم السكيمّا تلقائياً بناءً على اسم الشركة (الحقل name) وليس الإيميل
+      const generatedSchema = 'schema_' + name.toLowerCase().trim().replace(/[^a-zA-Z0-9]/g, '_');
 
       const response = await fetch('https://nawh-ai25.vercel.app/api/register-user', {
         method: 'POST',
@@ -202,25 +202,6 @@ export function AppProvider({ children }) {
       }
 
       const targetUserId = data.userId || data.id || (data.rows && data.rows[0]?.id) || 'usr_' + Date.now().toString(36);
-
-      // تنظيف اسم السكيمّا أمنياً للحساب الجديد بناءً على معرفه الفريد لحصر الحروف والأرقام
-      const schemaName = `schema_${targetUserId.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()}`;
-
-      // استدعاء رابط تهيئة وإنشاء السكيمّا المخصصة لهذا الحساب السحابي فوراً
-      try {
-        await fetch('https://nawh-ai25.vercel.app/api/query', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-tenant-schema': generatedSchema
-          },
-          body: JSON.stringify({
-            query: `CREATE SCHEMA IF NOT EXISTS ${schemaName};`
-          }),
-        });
-      } catch (schemaErr) {
-        console.error("فشل إنشاء السكيمّا السحابية تلقائياً:", schemaErr);
-      }
 
       const newUser = await registerUserAndCreateTables(name, email, password, phone, targetUserId);
       
