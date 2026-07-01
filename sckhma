@@ -1,0 +1,45 @@
+-- 1. دالة ذكية تقوم بإنشاء الجداول الافتراضية داخل السكيمّا الجديدة
+CREATE OR REPLACE FUNCTION public.init_tenant_tables()
+RETURNS event_trigger AS $$
+DECLARE
+    obj record;
+    schema_name text;
+BEGIN
+    FOR obj IN SELECT * FROM pg_event_trigger_ddl_commands() WHERE command_tag = 'CREATE SCHEMA'
+    LOOP
+        -- جلب اسم السكيمّا التي تم إنشاؤها للتو
+        schema_name := obj.object_identity;
+        
+        -- إنشاء جدول الديون داخل السكيمّا الجديدة تلقائياً
+        EXECUTE format('
+            CREATE TABLE IF NOT EXISTS %I.debts (
+                id VARCHAR(50) PRIMARY KEY,
+                user_id VARCHAR(50) NOT NULL,
+                title VARCHAR(255) NOT NULL,
+                amount NUMERIC(10, 2) NOT NULL,
+                type VARCHAR(20) NOT NULL,
+                person_name VARCHAR(255) NOT NULL,
+                person_phone VARCHAR(50),
+                due_date VARCHAR(50),
+                status VARCHAR(20) DEFAULT %L,
+                notes TEXT,
+                created_at VARCHAR(50) NOT NULL
+            );', schema_name, 'pending');
+
+        -- إنشاء جدول المستخدمين داخل السكيمّا الجديدة تلقائياً
+        EXECUTE format('
+            CREATE TABLE IF NOT EXISTS %I.users (
+                id VARCHAR(50) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                created_at VARCHAR(50) NOT NULL
+            );', schema_name);
+    END LOOP;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 2. ربط الدالة بـ Event Trigger يراقب السيرفر
+CREATE EVENT TRIGGER trigger_on_schema_create
+ON ddl_command_end
+WHEN tag IN ('CREATE SCHEMA')
+EXECUTE FUNCTION public.init_tenant_tables();
