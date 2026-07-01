@@ -60,15 +60,35 @@ export function AppProvider({ children }) {
   const [debts, setDebts] = useState([]);
   const [users, setUsers] = useState([]);
 
+  // دالة موحدة لجلب البيانات من الرابط السحابي المخصص وتحديث الـ state والـ LocalStorage
+  const syncDebtsFromServer = useCallback(async (userId) => {
+    if (!userId) return;
+    try {
+      const response = await fetch(`https://nawh-ai25.vercel.app/get?userId=${userId}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.debts) {
+          setDebts(data.debts);
+          saveToLocalStorage(`user_${userId}_debts`, data.debts);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error("خطأ أثناء جلب الديون من السيرفر السحابي:", err);
+    }
+    // في حال فشل السيرفر، يتم الاعتماد على البيانات المحلية كبديل آمن لحماية التطبيق
+    const userDebts = fetchDebts(userId);
+    setDebts(userDebts);
+  }, []);
+
   // Load debts when user changes
   useEffect(() => {
     if (user && user.id) {
-      const userDebts = fetchDebts(user.id);
-      setDebts(userDebts);
+      syncDebtsFromServer(user.id);
     } else {
       setDebts([]);
     }
-  }, [user]);
+  }, [user, syncDebtsFromServer]);
 
   // Translation helper
   const t = useCallback((key) => {
@@ -218,11 +238,19 @@ export function AppProvider({ children }) {
     showNotification(t('logoutSuccess'), 'success');
   };
 
-  // Debt functions using neon service
+  // Debt functions using neon service and backup server links
   const handleAddDebt = async (debtData) => {
     setLoading(true);
     try {
       const newDebt = await addDebt(user.id, debtData);
+      
+      // إرسال البيانات فوراً إلى رابط الحفظ السحابي
+      await fetch('https://nawh-ai25.vercel.app/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, action: 'ADD', debt: newDebt }),
+      }).catch(err => console.error("Cloud Save Failed:", err));
+
       setDebts(prev => [newDebt, ...prev]);
       showNotification(t('debtAdded'), 'success');
       return newDebt;
@@ -238,6 +266,14 @@ export function AppProvider({ children }) {
     setLoading(true);
     try {
       const updatedDebt = await updateDebtStatus(user.id, id, updates);
+      
+      // إرسال التعديلات فوراً إلى رابط الحفظ السحابي
+      await fetch('https://nawh-ai25.vercel.app/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, action: 'UPDATE', debtId: id, updates }),
+      }).catch(err => console.error("Cloud Update Failed:", err));
+
       setDebts(prev => prev.map(d => d.id === id ? updatedDebt : d));
       showNotification(t('debtUpdated'), 'success');
     } catch (error) {
@@ -252,6 +288,14 @@ export function AppProvider({ children }) {
     setLoading(true);
     try {
       await deleteDebt(user.id, id);
+      
+      // إرسال أمر الحذف فوراً إلى رابط الحفظ السحابي
+      await fetch('https://nawh-ai25.vercel.app/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, action: 'DELETE', debtId: id }),
+      }).catch(err => console.error("Cloud Delete Failed:", err));
+
       setDebts(prev => prev.filter(d => d.id !== id));
       showNotification(t('debtDeleted'), 'success');
     } catch (error) {
@@ -298,10 +342,9 @@ export function AppProvider({ children }) {
   // Refresh debts
   const refreshDebts = useCallback(() => {
     if (user && user.id) {
-      const userDebts = fetchDebts(user.id);
-      setDebts(userDebts);
+      syncDebtsFromServer(user.id);
     }
-  }, [user]);
+  }, [user, syncDebtsFromServer]);
 
   // Request notification permission
   const requestNotificationPermission = async () => {
