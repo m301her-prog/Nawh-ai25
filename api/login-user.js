@@ -7,7 +7,10 @@ export default async function handler(req, res) {
 
   const client = new pg.Client({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
+    ssl: { 
+      rejectUnauthorized: false,
+      sslmode: 'verify-full' 
+    }
   });
 
   try {
@@ -21,8 +24,8 @@ export default async function handler(req, res) {
 
     await client.connect();
 
-    // جلب بيانات المستخدم آلياً باستخدام مصفوفة المتغيرات بأسلوب مكتبة pg
-    const loginQuery = 'SELECT id, name, email, password, phone, "isAdmin", active FROM users WHERE LOWER(email) = $1 LIMIT 1';
+    // البحث عن بيانات المستخدم داخل الجدول الصحيح app_users
+    const loginQuery = 'SELECT id, name, email, password, phone, "isAdmin", active FROM app_users WHERE LOWER(email) = $1 LIMIT 1';
     const result = await client.query(loginQuery, [cleanEmail]);
 
     if (result.rows.length === 0) {
@@ -31,12 +34,10 @@ export default async function handler(req, res) {
 
     const dbUser = result.rows[0];
 
-    // مطابقة كلمة المرور
     if (dbUser.password !== password) {
       return res.status(400).json({ error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
     }
 
-    // إرجاع النتيجة مع مراعاة مسميات الأعمدة ومطابقتها لـ Frontend لديك فوراً
     return res.status(200).json({
       message: 'تم تسجيل الدخول بنجاح',
       user: {
