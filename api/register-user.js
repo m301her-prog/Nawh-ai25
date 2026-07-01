@@ -5,11 +5,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  // 1. حل تحذير الـ SSL: دمج إعداد sslmode مباشرة في رابط الاتصال لمنع ظهور الـ Warning
+  const baseConnectionString = process.env.DATABASE_URL;
+  const separator = baseConnectionString.includes('?') ? '&' : '?';
+  const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
+
   const client = new pg.Client({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: finalConnectionString,
     ssl: { 
-      rejectUnauthorized: false,
-      sslmode: 'verify-full' 
+      rejectUnauthorized: false 
     }
   });
 
@@ -36,9 +40,9 @@ export default async function handler(req, res) {
     const isAdmin = cleanEmail === 'admin@debts.dz';
     const createdAt = new Date().toISOString();
 
-    // الإدخال داخل الجدول الصحيح app_users
+    // 2. حل خطأ العمود: تعديل "isAdmin" إلى الاسم المطابق لقاعدتك is_admin
     const insertQuery = `
-      INSERT INTO app_users (id, name, email, password, phone, "isAdmin", active, "createdAt")
+      INSERT INTO app_users (id, name, email, password, phone, is_admin, active, "createdAt")
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     `;
     
@@ -62,6 +66,7 @@ export default async function handler(req, res) {
     console.error('Registration API Error:', error);
     return res.status(500).json({ error: 'حدث خطأ في الخادم أثناء إنشاء الحساب، يرجى المحاولة لاحقاً' });
   } finally {
+    // إغلاق الاتصال دائماً بأمان
     await client.end().catch(err => console.error('Error closing client:', err));
   }
 }
