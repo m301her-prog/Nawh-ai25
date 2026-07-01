@@ -56,17 +56,15 @@ export function AppProvider({ children }) {
     return loadFromLocalStorage('whatsappEnabled', true);
   });
 
-  // Data state
+  // Data state - will be loaded from user-specific storage
   const [debts, setDebts] = useState([]);
   const [users, setUsers] = useState([]);
 
-  // دالة جلب البيانات السحابية مع كاشف أخطاء مدمج
+  // دالة موحدة سحابية لجلب البيانات فوراً (تم تعديل المسار لـ /api/get)
   const syncDebtsFromServer = useCallback(async (userId) => {
     if (!userId) return;
-    console.log("🔄 جاري محاولة جلب البيانات للسيد:", userId);
     try {
-      const response = await fetch(`https://nawh-ai25.vercel.app/get?userId=${userId}`);
-      console.log("📡 استجابة جلب البيانات من السيرفر:", response.status);
+      const response = await fetch(`https://nawh-ai25.vercel.app/api/get?userId=${userId}`);
       if (response.ok) {
         const data = await response.json();
         if (data && data.debts) {
@@ -76,9 +74,8 @@ export function AppProvider({ children }) {
         }
       }
     } catch (err) {
-      console.error("❌ خطأ صريح في دالة get السحابية:", err);
+      console.error("خطأ أثناء جلب الديون من السيرفر السحابي:", err);
     }
-    // احتياطي محلي
     const userDebts = fetchDebts(userId);
     setDebts(userDebts);
   }, []);
@@ -229,95 +226,68 @@ export function AppProvider({ children }) {
     showNotification(t('logoutSuccess'), 'success');
   };
 
-  // كاشف الإضافة الصارم
+  // تعديل الإضافة: تم ضبط المسار لـ /api/save
   const handleAddDebt = async (debtData) => {
     setLoading(true);
-    console.log("🚀 بدء عملية إضافة دين جديدة سحابياً ومحلياً...");
     try {
       const newDebt = await addDebt(user.id, debtData);
       
-      console.log("📡 جاري ضرب رابط الحفظ السحابي /save...");
-      const cloudResponse = await fetch('https://nawh-ai25.vercel.app/save', {
+      // إجبار إرسال الـ Fetch والانتظار الصارم قبل تفعيل التحديث المحلي
+      await fetch('https://nawh-ai25.vercel.app/api/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, action: 'ADD', debt: newDebt }),
       });
 
-      console.log("📡 نتيجة استجابة رابط الحفظ:", cloudResponse.status);
-      
-      if (!cloudResponse.ok) {
-        const errData = await cloudResponse.json().catch(() => ({}));
-        throw new Error(errData.error || `خطأ سيرفر بكود: ${cloudResponse.status}`);
-      }
-
       setDebts(prev => [newDebt, ...prev]);
       showNotification(t('debtAdded'), 'success');
       return newDebt;
     } catch (error) {
-      console.error("❌ انهيار كامل في كود الإضافة:", error);
-      showNotification("فشل السيرفر: " + error.message, 'error');
+      showNotification(error.message, 'error');
       throw error;
     } finally {
       setLoading(false);
     }
   };
 
-  // كاشف التحديث الصارم
+  // تعديل التحديث: تم ضبط المسار لـ /api/save
   const handleUpdateDebt = async (id, updates) => {
     setLoading(true);
-    console.log("🚀 بدء تحديث دين برقم:", id);
     try {
-      console.log("📡 جاري إرسال التحديث للسيرفر السحابي...");
-      const cloudResponse = await fetch('https://nawh-ai25.vercel.app/save', {
+      // تنفيذ الـ Fetch أولاً لضمان تحرك الرابط السحابي
+      await fetch('https://nawh-ai25.vercel.app/api/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, action: 'UPDATE', debtId: id, updates }),
       });
 
-      console.log("📡 نتيجة استجابة رابط التحديث:", cloudResponse.status);
-
-      if (!cloudResponse.ok) {
-        const errData = await cloudResponse.json().catch(() => ({}));
-        throw new Error(errData.error || `خطأ سيرفر بكود: ${cloudResponse.status}`);
-      }
-
       const updatedDebt = await updateDebtStatus(user.id, id, updates);
       setDebts(prev => prev.map(d => d.id === id ? updatedDebt : d));
       showNotification(t('debtUpdated'), 'success');
     } catch (error) {
-      console.error("❌ انهيار كامل في كود التحديث:", error);
-      showNotification("فشل تحديث السيرفر: " + error.message, 'error');
+      showNotification(error.message, 'error');
       throw error;
     } finally {
       setLoading(false);
     }
   };
 
-  // كاشف الحذف الصارم
+  // تعديل الحذف: تم ضبط المسار لـ /api/save
   const handleDeleteDebt = async (id) => {
     setLoading(true);
-    console.log("🚀 بدء حذف دين برقم:", id);
     try {
-      console.log("📡 جاري إرسال طلب الحذف للسيرفر السحابي...");
-      const cloudResponse = await fetch('https://nawh-ai25.vercel.app/save', {
+      // إرسال طلب الحذف السحابي أولاً والانتظار
+      await fetch('https://nawh-ai25.vercel.app/api/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, action: 'DELETE', debtId: id }),
       });
 
-      console.log("📡 نتيجة استجابة رابط الحذف:", cloudResponse.status);
-
-      if (!cloudResponse.ok) {
-        const errData = await cloudResponse.json().catch(() => ({}));
-        throw new Error(errData.error || `خطأ سيرفر بكود: ${cloudResponse.status}`);
-      }
-
       await deleteDebt(user.id, id);
       setDebts(prev => prev.filter(d => d.id !== id));
       showNotification(t('debtDeleted'), 'success');
     } catch (error) {
-      console.error("❌ انهيار كامل في كود الحذف:", error);
-      showNotification("فشل حذف السيرفر: " + error.message, 'error');
+      showNotification(error.message, 'error');
       throw error;
     } finally {
       setLoading(false);
@@ -389,12 +359,15 @@ export function AppProvider({ children }) {
   };
 
   const value = {
+    // Auth
     user,
     isAuthenticated,
     isAdmin,
     login,
     register,
     logout,
+
+    // UI
     darkMode,
     setDarkMode,
     language,
@@ -403,12 +376,16 @@ export function AppProvider({ children }) {
     notification,
     showNotification,
     t,
+
+    // Settings
     notificationsEnabled,
     setNotificationsEnabled,
     whatsappEnabled,
     setWhatsappEnabled,
     requestNotificationPermission,
     sendNotification,
+
+    // Data
     debts,
     users,
     addDebt: handleAddDebt,
@@ -419,9 +396,17 @@ export function AppProvider({ children }) {
     deleteUser: handleDeleteUser,
     statistics,
     refreshDebts,
+
+    // WhatsApp
     openWhatsApp,
+
+    // Android capture
     triggerAndroidCapture,
+
+    // Reports
     downloadReport,
+
+    // Neon service status
     isNeonConfigured: isNeonConfigured()
   };
 
