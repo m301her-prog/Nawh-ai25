@@ -11,8 +11,8 @@ export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
-    companySchema: '', // الحقل الجديد الخاص باسم الشركة / السكيمّا
     name: '',
+    companyName: '',
     email: '',
     phone: '',
     password: '',
@@ -22,12 +22,6 @@ export default function Auth() {
 
   const validateForm = () => {
     const newErrors = {};
-
-    // التحقق من إدخال اسم الشركة (إجباري في الحالتين)
-    if (!formData.companySchema || formData.companySchema.trim().length < 3) {
-      newErrors.companySchema = language === 'ar' ? 'اسم الشركة مطلوب وصالح' :
-                                language === 'fr' ? 'Nom de l\'entreprise requis' : 'Company name required';
-    }
 
     if (!formData.email || !formData.email.includes('@')) {
       newErrors.email = language === 'ar' ? 'البريد الإلكتروني غير صالح' :
@@ -43,6 +37,11 @@ export default function Auth() {
       if (!formData.name) {
         newErrors.name = language === 'ar' ? 'الاسم مطلوب' :
                          language === 'fr' ? 'Nom requis' : 'Name required';
+      }
+
+      if (!formData.companyName) {
+        newErrors.companyName = language === 'ar' ? 'اسم الشركة مطلوب' :
+                                language === 'fr' ? 'Nom de l\'entreprise requis' : 'Company name required';
       }
 
       if (formData.password !== formData.confirmPassword) {
@@ -62,11 +61,10 @@ export default function Auth() {
 
     try {
       if (isLogin) {
-        // تمرير اسم الشركة/السكيمّا مع تسجيل الدخول
-        await login(formData.email, formData.password, formData.companySchema);
+        await login(formData.email, formData.password);
       } else {
-        // تمرير اسم الشركة/السكيمّا مع إنشاء الحساب الجديد
-        await register(formData.name, formData.email, formData.password, formData.phone, formData.companySchema);
+        // يمكنك تمرير formData.companyName إلى دالة الـ register الخاصة بك إذا كان الـ Backend يدعم ذلك
+        await register(formData.name, formData.email, formData.password, formData.phone, formData.companyName);
       }
     } catch (error) {
       setErrors({ submit: error.message });
@@ -84,8 +82,8 @@ export default function Auth() {
     setIsLogin(!isLogin);
     setErrors({});
     setFormData({
-      companySchema: formData.companySchema, // الحفاظ على اسم الشركة عند التنقل لراحة المستخدم
       name: '',
+      companyName: '',
       email: formData.email,
       phone: '',
       password: '',
@@ -148,30 +146,6 @@ export default function Auth() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-5">
-            
-            {/* Company Schema Field - Always Visible & Required */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                <Building2 className="inline w-4 h-4 mr-2" />
-                {language === 'ar' ? 'اسم الشركة / كود الحساب' : language === 'fr' ? 'Nom de l\'entreprise' : 'Company Name / Code'}
-              </label>
-              <input
-                type="text"
-                value={formData.companySchema}
-                onChange={(e) => handleChange('companySchema', e.target.value)}
-                className={`w-full px-4 py-3.5 rounded-xl border-2 ${
-                  errors.companySchema
-                    ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
-                    : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
-                } text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all`}
-                placeholder={language === 'ar' ? 'مثال: schema_usr_k9x8u6miz أو اسم شركتك' : 'e.g. company_name'}
-                dir="ltr"
-              />
-              {errors.companySchema && (
-                <p className="mt-2 text-sm text-red-500 dark:text-red-400">{errors.companySchema}</p>
-              )}
-            </div>
-
             {/* Name - Register only */}
             {!isLogin && (
               <div>
@@ -192,6 +166,30 @@ export default function Auth() {
                 />
                 {errors.name && (
                   <p className="mt-2 text-sm text-red-500 dark:text-red-400">{errors.name}</p>
+                )}
+              </div>
+            )}
+
+            {/* Company Name - Register only */}
+            {!isLogin && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <Building2 className="inline w-4 h-4 mr-2" />
+                  {language === 'ar' ? 'اسم الشركة' : language === 'fr' ? 'Nom de l\'entreprise' : 'Company Name'}
+                </label>
+                <input
+                  type="text"
+                  value={formData.companyName}
+                  onChange={(e) => handleChange('companyName', e.target.value)}
+                  className={`w-full px-4 py-3.5 rounded-xl border-2 ${
+                    errors.companyName
+                      ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
+                      : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
+                  } text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all`}
+                  placeholder={language === 'ar' ? 'اسم شركتك أو نشاطك التجاري' : language === 'fr' ? 'Nom de votre entreprise' : 'Your company name'}
+                />
+                {errors.companyName && (
+                  <p className="mt-2 text-sm text-red-500 dark:text-red-400">{errors.companyName}</p>
                 )}
               </div>
             )}
@@ -227,7 +225,6 @@ export default function Auth() {
                   {t('phone')}
                 </label>
                 <input
-                  type="teal"
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => handleChange('phone', e.target.value)}
@@ -323,7 +320,6 @@ export default function Auth() {
               <p className="text-gray-500 dark:text-gray-400">
                 {isLogin ? t('noAccount') : t('hasAccount')}
                 <button
-                  type="button"
                   onClick={toggleMode}
                   className="mr-2 font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
                 >
