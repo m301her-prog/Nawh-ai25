@@ -60,7 +60,7 @@ export function AppProvider({ children }) {
   const [debts, setDebts] = useState([]);
   const [users, setUsers] = useState([]);
 
-  // دالة موحدة لجلب البيانات من الرابط السحابي المخصص وتحديث الـ state والـ LocalStorage
+  // دالة موحدة سحابية لجلب البيانات فوراً
   const syncDebtsFromServer = useCallback(async (userId) => {
     if (!userId) return;
     try {
@@ -76,7 +76,6 @@ export function AppProvider({ children }) {
     } catch (err) {
       console.error("خطأ أثناء جلب الديون من السيرفر السحابي:", err);
     }
-    // في حال فشل السيرفر، يتم الاعتماد على البيانات المحلية كبديل آمن لحماية التطبيق
     const userDebts = fetchDebts(userId);
     setDebts(userDebts);
   }, []);
@@ -119,7 +118,6 @@ export function AppProvider({ children }) {
   const login = async (email, password) => {
     setLoading(true);
     try {
-      // 1. استدعاء الـ API السحابي لتسجيل الدخول وجلب بيانات الحساب مباشرة
       const response = await fetch('https://nawh-ai25.vercel.app/api/login-user', {
         method: 'POST',
         headers: {
@@ -136,12 +134,10 @@ export function AppProvider({ children }) {
 
       const serverUser = data.user;
 
-      // التحقق من حالة تفعيل الحساب المسترجع من السيرفر
       if (serverUser.active === false || serverUser.active === 'false') {
         throw new Error(language === 'ar' ? 'تم غلق هذا الحساب مؤقتاً، يرجى التواصل مع الإدارة' : 'Account suspended');
       }
 
-      // صياغة كائن المستخدم النهائي المتوافق مع التطبيق
       const authenticatedUser = {
         id: serverUser.id,
         name: serverUser.name,
@@ -151,7 +147,6 @@ export function AppProvider({ children }) {
         createdAt: new Date().toISOString()
       };
 
-      // 2. تحديث وإعادة بناء قائمة الحسابات المحلية فوراً
       const localUsers = loadFromLocalStorage('registeredUsers', []);
       const existingUserIndex = localUsers.findIndex(u => u.email.toLowerCase() === email.toLowerCase().trim());
       
@@ -162,17 +157,14 @@ export function AppProvider({ children }) {
       }
       saveToLocalStorage('registeredUsers', localUsers);
 
-      // تهيئة مفاتيح الجداول وجداول تخزين الديون والنشاطات المحلية للمستخدم المستعاد منعاً لأي تعارض
       saveToLocalStorage(`user_${authenticatedUser.id}_debts`, loadFromLocalStorage(`user_${authenticatedUser.id}_debts`, []));
       saveToLocalStorage(`user_${authenticatedUser.id}_activities`, loadFromLocalStorage(`user_${authenticatedUser.id}_activities`, []));
 
-      // 3. تحديث الستيت وحفظ الجلسة
       setUser(authenticatedUser);
       setIsAuthenticated(true);
       setIsAdmin(authenticatedUser.isAdmin || email === 'admin@debts.dz');
       saveToLocalStorage('currentUser', authenticatedUser);
 
-      // 4. إطلاق الكابتشور للأندرويد لإشعار محرك النظام الخارجي بنجاح العملية
       triggerAndroidCapture('USER_LOGGED_IN', { userId: authenticatedUser.id, email: authenticatedUser.email });
 
       showNotification(t('loginSuccess'), 'success');
@@ -187,7 +179,6 @@ export function AppProvider({ children }) {
   const register = async (name, email, password, phone) => {
     setLoading(true);
     try {
-      // الخطوة 1: حفظ الحساب أولاً في جدول نيون الموحد عبر رابط الـ API الخاص بك
       const response = await fetch('https://nawh-ai25.vercel.app/api/register-user', {
         method: 'POST',
         headers: {
@@ -204,7 +195,6 @@ export function AppProvider({ children }) {
 
       const targetUserId = data.userId || data.id || (data.rows && data.rows[0]?.id) || 'usr_' + Date.now().toString(36);
 
-      // الخطوة 2: بعد نجاح الـ API، نمرر المعرف لخدمة السيرفر لتهيئة جداول تخزين التطبيق محلياً وسحابياً
       const newUser = await registerUserAndCreateTables(name, email, password, phone, targetUserId);
       
       setUser(newUser);
@@ -212,7 +202,6 @@ export function AppProvider({ children }) {
       setIsAdmin(newUser.isAdmin || false);
       saveToLocalStorage('currentUser', newUser);
 
-      // إطلاق الكابتشور للأندرويد عند التسجيل الجديد
       triggerAndroidCapture('USER_REGISTERED', { userId: newUser.id, email: newUser.email });
 
       showNotification(t('registerSuccess'), 'success');
@@ -226,7 +215,6 @@ export function AppProvider({ children }) {
 
   const logout = async () => {
     if (user) {
-      // إطلاق الكابتشور للأندرويد لإشعار النظام قبل مسح الجلسة
       triggerAndroidCapture('USER_LOGGED_OUT', { userId: user.id });
       await logoutUser(user.id);
     }
@@ -238,18 +226,18 @@ export function AppProvider({ children }) {
     showNotification(t('logoutSuccess'), 'success');
   };
 
-  // Debt functions using neon service and backup server links
+  // تعديل الإضافة: إرسال السحابة أولاً بانتظار صارم (await)
   const handleAddDebt = async (debtData) => {
     setLoading(true);
     try {
       const newDebt = await addDebt(user.id, debtData);
       
-      // إرسال البيانات فوراً إلى رابط الحفظ السحابي
+      // إجبار إرسال الـ Fetch والانتظار الصارم قبل تفعيل التحديث المحلي
       await fetch('https://nawh-ai25.vercel.app/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, action: 'ADD', debt: newDebt }),
-      }).catch(err => console.error("Cloud Save Failed:", err));
+      });
 
       setDebts(prev => [newDebt, ...prev]);
       showNotification(t('debtAdded'), 'success');
@@ -262,18 +250,18 @@ export function AppProvider({ children }) {
     }
   };
 
+  // تعديل التحديث: إرسال السحابة أولاً بانتظار صارم (await)
   const handleUpdateDebt = async (id, updates) => {
     setLoading(true);
     try {
-      const updatedDebt = await updateDebtStatus(user.id, id, updates);
-      
-      // إرسال التعديلات فوراً إلى رابط الحفظ السحابي
+      // تنفيذ الـ Fetch أولاً لضمان تحرك الرابط السحابي
       await fetch('https://nawh-ai25.vercel.app/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, action: 'UPDATE', debtId: id, updates }),
-      }).catch(err => console.error("Cloud Update Failed:", err));
+      });
 
+      const updatedDebt = await updateDebtStatus(user.id, id, updates);
       setDebts(prev => prev.map(d => d.id === id ? updatedDebt : d));
       showNotification(t('debtUpdated'), 'success');
     } catch (error) {
@@ -284,18 +272,18 @@ export function AppProvider({ children }) {
     }
   };
 
+  // تعديل الحذف: إرسال السحابة أولاً بانتظار صارم (await)
   const handleDeleteDebt = async (id) => {
     setLoading(true);
     try {
-      await deleteDebt(user.id, id);
-      
-      // إرسال أمر الحذف فوراً إلى رابط الحفظ السحابي
+      // إرسال طلب الحذف السحابي أولاً والانتظار
       await fetch('https://nawh-ai25.vercel.app/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, action: 'DELETE', debtId: id }),
-      }).catch(err => console.error("Cloud Delete Failed:", err));
+      });
 
+      await deleteDebt(user.id, id);
       setDebts(prev => prev.filter(d => d.id !== id));
       showNotification(t('debtDeleted'), 'success');
     } catch (error) {
