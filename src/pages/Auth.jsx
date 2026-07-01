@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
-import { Wallet, ArrowLeft, Eye, EyeOff, User, Mail, Lock, Phone } from 'lucide-react';
+import { Wallet, ArrowLeft, Eye, EyeOff, User, Mail, Lock, Phone, Building2 } from 'lucide-react';
 
 /**
  * Authentication Page
@@ -11,6 +11,7 @@ export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
+    companySchema: '', // الحقل الجديد الخاص باسم الشركة / السكيمّا
     name: '',
     email: '',
     phone: '',
@@ -21,6 +22,12 @@ export default function Auth() {
 
   const validateForm = () => {
     const newErrors = {};
+
+    // التحقق من إدخال اسم الشركة (إجباري في الحالتين)
+    if (!formData.companySchema || formData.companySchema.trim().length < 3) {
+      newErrors.companySchema = language === 'ar' ? 'اسم الشركة مطلوب وصالح' :
+                                language === 'fr' ? 'Nom de l\'entreprise requis' : 'Company name required';
+    }
 
     if (!formData.email || !formData.email.includes('@')) {
       newErrors.email = language === 'ar' ? 'البريد الإلكتروني غير صالح' :
@@ -40,7 +47,7 @@ export default function Auth() {
 
       if (formData.password !== formData.confirmPassword) {
         newErrors.confirmPassword = language === 'ar' ? 'كلمتا المرور غير متطابقتين' :
-                                     language === 'fr' ? 'Mots de passe différents' : 'Passwords do not match';
+                                    language === 'fr' ? 'Mots de passe différents' : 'Passwords do not match';
       }
     }
 
@@ -55,9 +62,11 @@ export default function Auth() {
 
     try {
       if (isLogin) {
-        await login(formData.email, formData.password);
+        // تمرير اسم الشركة/السكيمّا مع تسجيل الدخول
+        await login(formData.email, formData.password, formData.companySchema);
       } else {
-        await register(formData.name, formData.email, formData.password, formData.phone);
+        // تمرير اسم الشركة/السكيمّا مع إنشاء الحساب الجديد
+        await register(formData.name, formData.email, formData.password, formData.phone, formData.companySchema);
       }
     } catch (error) {
       setErrors({ submit: error.message });
@@ -75,6 +84,7 @@ export default function Auth() {
     setIsLogin(!isLogin);
     setErrors({});
     setFormData({
+      companySchema: formData.companySchema, // الحفاظ على اسم الشركة عند التنقل لراحة المستخدم
       name: '',
       email: formData.email,
       phone: '',
@@ -138,6 +148,30 @@ export default function Auth() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-5">
+            
+            {/* Company Schema Field - Always Visible & Required */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <Building2 className="inline w-4 h-4 mr-2" />
+                {language === 'ar' ? 'اسم الشركة / كود الحساب' : language === 'fr' ? 'Nom de l\'entreprise' : 'Company Name / Code'}
+              </label>
+              <input
+                type="text"
+                value={formData.companySchema}
+                onChange={(e) => handleChange('companySchema', e.target.value)}
+                className={`w-full px-4 py-3.5 rounded-xl border-2 ${
+                  errors.companySchema
+                    ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
+                    : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
+                } text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all`}
+                placeholder={language === 'ar' ? 'مثال: schema_usr_k9x8u6miz أو اسم شركتك' : 'e.g. company_name'}
+                dir="ltr"
+              />
+              {errors.companySchema && (
+                <p className="mt-2 text-sm text-red-500 dark:text-red-400">{errors.companySchema}</p>
+              )}
+            </div>
+
             {/* Name - Register only */}
             {!isLogin && (
               <div>
@@ -193,6 +227,7 @@ export default function Auth() {
                   {t('phone')}
                 </label>
                 <input
+                  type="teal"
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => handleChange('phone', e.target.value)}
@@ -288,6 +323,7 @@ export default function Auth() {
               <p className="text-gray-500 dark:text-gray-400">
                 {isLogin ? t('noAccount') : t('hasAccount')}
                 <button
+                  type="button"
                   onClick={toggleMode}
                   className="mr-2 font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
                 >
@@ -297,13 +333,6 @@ export default function Auth() {
             </div>
           </form>
         </div>
-
-        {/* Demo credentials hint */}
-        <p className="text-center mt-6 text-sm text-gray-500 dark:text-gray-400">
-          {language === 'ar' ? 'للتجربة: admin@debts.dz / admin123' :
-           language === 'fr' ? 'Démo: admin@debts.dz / admin123' :
-           'Demo: admin@debts.dz / admin123'}
-        </p>
       </div>
     </div>
   );
