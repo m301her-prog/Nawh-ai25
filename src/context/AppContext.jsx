@@ -195,6 +195,24 @@ export function AppProvider({ children }) {
 
       const targetUserId = data.userId || data.id || (data.rows && data.rows[0]?.id) || 'usr_' + Date.now().toString(36);
 
+      // تنظيف اسم السكيمّا أمنياً للحساب الجديد بناءً على معرفه الفريد لحصر الحروف والأرقام
+      const schemaName = `schema_${targetUserId.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()}`;
+
+      // استدعاء رابط تهيئة وإنشاء السكيمّا المخصصة لهذا الحساب السحابي فوراً
+      try {
+        await fetch('https://nawh-ai25.vercel.app/api/query', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: `CREATE SCHEMA IF NOT EXISTS ${schemaName};`
+          }),
+        });
+      } catch (schemaErr) {
+        console.error("فشل إنشاء السكيمّا السحابية تلقائياً:", schemaErr);
+      }
+
       const newUser = await registerUserAndCreateTables(name, email, password, phone, targetUserId);
       
       setUser(newUser);
