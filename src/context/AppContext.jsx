@@ -118,12 +118,16 @@ export function AppProvider({ children }) {
   const login = async (email, password) => {
     setLoading(true);
     try {
+      // اشتقاق اسم السكيمّا تلقائياً من البريد المدخل لإرساله بالهيدر المتوقع
+      const generatedSchema = 'schema_' + email.toLowerCase().trim().replace(/[^a-zA-Z0-9]/g, '_');
+
       const response = await fetch('https://nawh-ai25.vercel.app/api/login-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-tenant-schema': generatedSchema // إرسال الهيدر المطلوب لحل مشكلة السكيمّا
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, schemaName: generatedSchema }),
       });
 
       const data = await response.json();
@@ -179,12 +183,16 @@ export function AppProvider({ children }) {
   const register = async (name, email, password, phone) => {
     setLoading(true);
     try {
+      // اشتقاق اسم السكيمّا تلقائياً من البريد الإلكتروني لتجنب الخطأ الظاهر بالصورة تماماً
+      const generatedSchema = 'schema_' + email.toLowerCase().trim().replace(/[^a-zA-Z0-9]/g, '_');
+
       const response = await fetch('https://nawh-ai25.vercel.app/api/register-user', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-tenant-schema': generatedSchema // تعيين هيدر السكيمّا المطلوب من السيرفر
         },
-        body: JSON.stringify({ name, email, password, phone }),
+        body: JSON.stringify({ name, email, password, phone, schemaName: generatedSchema }),
       });
 
       const data = await response.json();
@@ -204,6 +212,7 @@ export function AppProvider({ children }) {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-tenant-schema': generatedSchema
           },
           body: JSON.stringify({
             query: `CREATE SCHEMA IF NOT EXISTS ${schemaName};`
