@@ -1,10 +1,14 @@
 import pg from 'pg';
 
 export default async function handler(request, response) {
-    // 1. إعدادات CORS الكاملة لمنع حظر الطلبات من الأندرويد أو المتصفح
+    // 1. إعدادات CORS الكاملة والمطابقة لكود الحفظ لتسهيل اتصال الهاتف والـ WebView
+    response.setHeader('Access-Control-Allow-Credentials', true);
     response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    response.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    response.setHeader(
+        'Access-Control-Allow-Headers',
+        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-tenant-schema'
+    );
 
     if (request.method === 'OPTIONS') return response.status(200).end();
     
@@ -12,7 +16,7 @@ export default async function handler(request, response) {
         return response.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
 
-    // 2. إعداد الاتصال باستخدام مكتبة pg الموحدة مع حل تحذير الـ SSL
+    // 2. ضبط الاتصال بـ Postgres (Neon) بنفس الطريقة الآمنة
     const baseConnectionString = process.env.DATABASE_URL;
     const separator = baseConnectionString.includes('?') ? '&' : '?';
     const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
@@ -24,37 +28,41 @@ export default async function handler(request, response) {
         }
     });
 
+    // استقبال اسم السكيمّا من الهيدر (يُرسل تلقائياً من الـ Context بالفرونت اند ليمثل الشركة)
+    const targetSchema = request.headers['x-tenant-schema'];
+
     try {
-        // جلب الـ userId المرسل من الواجهة الأمامية (Query Parameter)
-        const { userId } = request.query;
-
-        if (!userId) {
-            return response.status(400).json({ success: false, error: 'معرف المستخدم (userId) مطلوب' });
-        }
-
         await client.connect();
         
-        // 3. استعلام جلب الديون الخاصة بالمستخدم من الجدول الصحيح (استبدل app_debts باسم جدول الديون لديك إذا كان مختلفاً)
-        // افترضنا هنا أن اسم الجدول app_debts وبأحرف صغيرة تماماً
-        const debtsQuery = 'SELECT * FROM app_debts WHERE user_id = $1 ORDER BY created_at DESC';
-        const result = await client.query(debtsQuery, [userId]);
+        // 3. عزل مسار البيانات وتفعيل السكيمّا الخاصة بالعميل/الشركة تلقائياً في جلب البيانات
+        if (targetSchema) {
+            const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+            await client.query(`SET search_path TO "${cleanSchema}", public`);
+        }
 
-        // تحويل مسميات الأعمدة الـ Snake Case إلى Camel Case لتتوافق مع ما تتوقعه الواجهة الأمامية (الـ Frontend)
+        // 4. استعلام جلب الديون من جدول debts الموحد
+        // تم إلغاء شرط الـ user_id والاعتماد على عزل السكيمّا للشركة بالكامل بناءً على كود الحفظ
+        const debtsQuery = 'SELECT * FROM debts ORDER BY id DESC';
+        const result = await client.query(debtsQuery);
+
+        // 5. تحويل مسميات الأعمدة الـ Snake Case إلى Camel Case لتتوافق بدقة مع الـ Frontend وكود الحفظ
         const formattedDebts = result.rows.map(row => ({
             id: row.id,
-            userId: row.user_id,
-            title: row.title,
-            amount: parseFloat(row.amount),
-            type: row.type, // 'owed_to_me' أو 'i_owe'
+            type: row.type,                  // 'owed_to_me' أو 'i_owe'
             personName: row.person_name,
-            personPhone: row.person_phone,
+            phone: row.phone,
+            amount: parseFloat(row.amount) || 0,
+            currency: row.currency || 'DZD',
             dueDate: row.due_date,
-            status: row.status, // 'pending' أو 'paid'
-            createdAt: row.created_at,
-            notes: row.notes
+            notes: row.notes,
+            status: row.status,              // 'pending' أو 'paid' أو 'partially_paid'
+            isScheduled: row.is_scheduled || false,
+            scheduleType: row.schedule_type,
+            installmentsCount: row.installments_count || 0,
+            firstPaymentDate: row.first_payment_date
         }));
 
-        // إرجاع النتيجة بالصيغة التي ينتظرها كود الـ Context (data.debts)
+        // إرجاع النتيجة بالصيغة الصحيحة المتوافقة مع كائن الـ Context
         return response.status(200).json({ 
             success: true, 
             debts: formattedDebts 
