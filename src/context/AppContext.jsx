@@ -176,7 +176,7 @@ export function AppProvider({ children }) {
     }
   };
 
-  const register = async (name, email, password, phone) => {
+  const register = async (name, email, password, phone, companyName) => {
     setLoading(true);
     try {
       const response = await fetch('https://nawh-ai25.vercel.app/api/register-user', {
@@ -184,7 +184,7 @@ export function AppProvider({ children }) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name, email, password, phone }),
+        body: JSON.stringify({ name, email, password, phone, companyName }),
       });
 
       const data = await response.json();
