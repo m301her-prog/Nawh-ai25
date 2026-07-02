@@ -195,10 +195,11 @@ export function AppProvider({ children }) {
 
       const targetUserId = data.userId || data.id || (data.rows && data.rows[0]?.id) || 'usr_' + Date.now().toString(36);
 
-      // تنظيف اسم السكيمّا أمنياً للحساب الجديد بناءً على معرفه الفريد لحصر الحروف والأرقام
-      const schemaName = `schema_${targetUserId.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()}`;
+      // هنا دالة السكيمّا: تم تغيير البناء ليعتمد على اسم الشركة القادم من الواجهة بشكل آمن ونظيف
+      const cleanCompanyName = (companyName || 'company').replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+      const schemaName = `schema_${cleanCompanyName}`;
 
-      // استدعاء رابط تهيئة وإنشاء السكيمّا المخصصة لهذا الحساب السحابي فوراً
+      // استدعاء رابط تهيئة وإنشاء السكيمّا مع تمرير المتغيرات بالشكل الصحيح للـ Proxy
       try {
         await fetch('https://nawh-ai25.vercel.app/api/query', {
           method: 'POST',
@@ -206,7 +207,16 @@ export function AppProvider({ children }) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            query: `CREATE SCHEMA IF NOT EXISTS ${schemaName};`
+            schemaName: schemaName, // تمرير اسم السكيمّا هنا ليفهمه متغير schemaName بالباك اند
+            query: `CREATE TABLE IF NOT EXISTS debts (
+              id VARCHAR(50) PRIMARY KEY,
+              name VARCHAR(100) NOT NULL,
+              amount NUMERIC NOT NULL,
+              type VARCHAR(10) NOT NULL,
+              date VARCHAR(50) NOT NULL,
+              details TEXT,
+              status VARCHAR(20) DEFAULT 'pending'
+            );` // استعلام آمن لإنشاء جدول الديون مباشرة داخل سكيمّا الشركة الجديدة
           }),
         });
       } catch (schemaErr) {
