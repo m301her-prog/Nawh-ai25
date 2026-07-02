@@ -1,16 +1,32 @@
 import pg from 'pg';
 
 export default async function handler(req, res) {
+  // 1. إعدادات CORS الكاملة لضمان اتصال تطبيق الهاتف والـ WebView بدون حظر
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
+
+  // التعامل مع طلبات التحقق المسبق لـ CORS
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
+  // 2. ضبط الاتصال بـ Postgres (Neon) مع تفعيل الـ SSLmode بشكل صحيح
+  const baseConnectionString = process.env.DATABASE_URL || '';
+  const separator = baseConnectionString.includes('?') ? '&' : '?';
+  const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
+
   const client = new pg.Client({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { 
-      rejectUnauthorized: false,
-      sslmode: 'verify-full' 
-    }
+    connectionString: finalConnectionString,
+    ssl: { rejectUnauthorized: false }
   });
 
   try {
@@ -24,8 +40,8 @@ export default async function handler(req, res) {
 
     await client.connect();
 
-    // جلب العمود باسمه الصحيح من نيون "is_admin"
-    const loginQuery = 'SELECT id, name, email, password, phone, is_admin, active FROM app_users WHERE LOWER(email) = $1 LIMIT 1';
+    // 3. تأمين مسار الاستعلام بالإشارة لـ public.app_users مباشرة لإنهاء مشكلة خطأ الـ relation
+    const loginQuery = 'SELECT id, name, email, password, phone, is_admin, active FROM public.app_users WHERE LOWER(email) = $1 LIMIT 1';
     const result = await client.query(loginQuery, [cleanEmail]);
 
     if (result.rows.length === 0) {
@@ -38,7 +54,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
     }
 
-    // إرجاع الخصائص بالأسماء التي يتوقعها كود الـ Frontend لديك (تصفية الحساب وتحويلها لـ isAdmin)
+    // 4. إرجاع البيانات بالأسماء المطلوبة للفرونت إند
     return res.status(200).json({
       message: 'تم تسجيل الدخول بنجاح',
       user: {
@@ -55,6 +71,7 @@ export default async function handler(req, res) {
     console.error('Login API Error:', error);
     return res.status(500).json({ error: 'حدث خطأ داخلي في الخادم، يرجى المحاولة لاحقاً' });
   } finally {
+    // إغلاق الاتصال لضمان عدم استهلاك موارد قاعدة البيانات في البيئة السحابية
     await client.end().catch(err => console.error('Error closing client:', err));
   }
 }
