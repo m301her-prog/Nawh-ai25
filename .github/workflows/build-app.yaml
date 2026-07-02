@@ -1,4 +1,4 @@
-name: "Nawh Clean Production Build"
+name: "MY DEPT Clean Production Build"
 
 on:
   push:
@@ -63,7 +63,7 @@ jobs:
               {
                 "client_info": {
                   "mobilesdk_app_id": "1:162488255991:android:73d6299f11a1b7aec61af2",
-                  "android_client_info": { "package_name": "ai.nawah.app" }
+                  "android_client_info": { "package_name": "com.mydept.app" }
                 },
                 "api_key": [ { "current_key": "AIzaSyAKjsgnoHnGGr3urhm6Kpu7RvxN2dp6sJQ" } ],
                 "services": { "appinvite_service": { "other_platform_oauth_client": [] } }
@@ -78,10 +78,10 @@ jobs:
           APP_GRADLE="android/app/build.gradle"
           MANIFEST="android/app/src/main/AndroidManifest.xml"
           
-          # تعديل اسم التطبيق ليصبح (نواة AI) والحزمة لـ (ai.nawah.app)
-          sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">نواة AI<\/string>/' $STRINGS
-          sed -i 's/namespace ".*"/namespace "ai.nawah.app"/' $APP_GRADLE
-          sed -i 's/applicationId ".*"/applicationId "ai.nawah.app"/' $APP_GRADLE
+          # تعديل اسم التطبيق ليصبح (MY DEPT) والحزمة لـ (com.mydept.app)
+          sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">MY DEPT<\/string>/' $STRINGS
+          sed -i 's/namespace ".*"/namespace "com.mydept.app"/' $APP_GRADLE
+          sed -i 's/applicationId ".*"/applicationId "com.mydept.app"/' $APP_GRADLE
           
           # إضافة الأذونات اللازمة (الإنترنت، الإشعارات، التسجيل)
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' $MANIFEST
@@ -111,10 +111,10 @@ jobs:
       # 9. توقيع ملفات الـ APK والـ AAB
       - name: 9. Sign APK & AAB
         run: |
-          # توليد مفتاح توقيع مؤقت خاص بـ Nawh
+          # توليد مفتاح توقيع مؤقت خاص بـ MY DEPT
           keytool -genkey -v -keystore nawh_release.jks -alias nawh_alias -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass "nawh_pass_2026" -keypass "nawh_pass_2026" \
-            -dname "CN=NawhApp, OU=Dev, O=Nawh, L=Cairo, S=Egypt, C=EG"
+            -dname "CN=MyDeptApp, OU=Dev, O=MyDept, L=Cairo, S=Egypt, C=EG"
           
           # توقيع الـ APK
           APK_PATH=$(find android/app/build/outputs/apk/release/ -name "*.apk" | head -n 1)
@@ -131,7 +131,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
-          name: "Nawh Production Build v${{ github.run_number }}"
+          name: "MY DEPT Production Build v${{ github.run_number }}"
           files: |
             Nawh-Final-Signed.apk
             Nawh-Final-Signed.aab
