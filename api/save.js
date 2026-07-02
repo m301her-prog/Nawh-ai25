@@ -24,22 +24,24 @@ export default async function handler(req, res) {
     });
 
     // 3. استقبال البيانات والـ Action
-    const { action, id, debtId, debtData, debt, updates, userId } = req.body;
+    const { action, id, debtId, debtData, debt, updates, companyName, company_name } = req.body;
     let targetSchema = req.headers['x-tenant-schema'];
 
     // التقاط كائن البيانات الصحيح بمرونة عالية
     const d = debtData || debt || updates || req.body.data || req.body || {}; 
     const finalId = id || debtId || d.id;
-    const finalUserId = userId || d.userId || req.body.userId;
+    
+    // التقاط اسم الشركة القادم من البودي بشكل مرن
+    const finalCompanyName = companyName || company_name || d.companyName || d.company_name;
 
-    // حل ذكي: إذا لم يتم إرسال الهيدر، نقوم بإنشاء اسم السكيمّا بناءً على معرف المستخدم لمنع خطأ 400
+    // 💡 الإصلاح الجوهري: نعتمد حصراً على اسم الشركة لتحديد السكيمّا وليس على الـ userId
     if (!targetSchema || targetSchema.trim() === '') {
-        if (finalUserId) {
-            targetSchema = `schema_${finalUserId}`;
+        if (finalCompanyName) {
+            targetSchema = `schema_${finalCompanyName.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()}`;
         } else {
             return res.status(400).json({ 
                 success: false, 
-                error: 'x-tenant-schema header or userId in body is required.' 
+                error: 'اسم الشركة مطلوب لتحديد السكيمّا المستهدفة لحفظ البيانات.' 
             });
         }
     }
@@ -47,13 +49,14 @@ export default async function handler(req, res) {
     try {
         await client.connect();
         
-        // 4. معالجة وتفعيل السكيمّا الخاصة بالمستأجر/الشركة حصراً
+        // 4. معالجة وتفعيل السكيمّا الخاصة بالشركة المستهدفة حصراً
         const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
         
+        // نستخدم الميزة لفتح السكيمّا الحالية وضبط المسار إليها مباشرة دون تشتت البيانات
         await client.query(`CREATE SCHEMA IF NOT EXISTS "${cleanSchema}"`);
         await client.query(`SET search_path TO "${cleanSchema}"`);
         
-        // تأكيد إنشاء الجدول بداخل السكيمّا قبل تنفيذ أي استعلام لتفادي خطأ (does not exist)
+        // تأكيد إنشاء الجدول بداخل السكيمّا الخاصة بالشركة قبل تنفيذ أي استعلام
         await client.query(`
             CREATE TABLE IF NOT EXISTS debts (
                 id TEXT PRIMARY KEY,
