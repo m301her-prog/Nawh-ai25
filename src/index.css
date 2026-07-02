@@ -6,25 +6,24 @@
   html {
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
-    /* ضبط الشاشة لمنع الـ Overflow والتمرير الأفقي نهائياً في الأندرويد */
+    /* السماح بالتمرير العمودي وقفل الأفقي فقط */
     max-width: 100%;
     overflow-x: hidden;
-    width: 100%;
+    overflow-y: auto;
   }
 
   body {
     @apply antialiased;
-    overscroll-behavior-y: contain;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    /* إجبار محتوى الجسم على الثبات أفقياً وتجنب السحب لليمين واليسار */
+    /* السماح بالتمرير العمودي وقفل الأفقي فقط */
     max-width: 100%;
     overflow-x: hidden;
-    width: 100%;
+    overflow-y: auto;
     position: relative;
   }
 
-  /* تطبيق القفل على حاوية التطبيق الرئيسية React (مهم جداً للـ WebView) */
+  /* قفل الحاوية الرئيسية أفقياً فقط لمنع مشكلة الفراغ الأبيض */
   #root {
     max-width: 100%;
     overflow-x: hidden;
@@ -73,7 +72,7 @@
   input[type="date"],
   textarea,
   select {
-    font-size: 16px; /* يمنع الزووم التلقائي المزعج في متصفحات الموبايل */
+    font-size: 16px;
     -webkit-appearance: none;
     appearance: none;
   }
