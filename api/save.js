@@ -23,8 +23,7 @@ export default async function handler(req, res) {
         ssl: { rejectUnauthorized: false }
     });
 
-    // 3. استقبال الاستعلام والبارامترات + اسم السكيمّا الخاصة بالعميل
-    // نتيح قراءة السكيمّا إما من الـ body أو من الهيدر x-tenant-schema لضمان المرونة
+    // 3. استقبال الاستعلام والبارامترات + اسم السكيمّا الخاصة بالشركة
     const { query, params, schemaName } = req.body;
     const targetSchema = schemaName || req.headers['x-tenant-schema'];
 
@@ -37,17 +36,20 @@ export default async function handler(req, res) {
         
         // 4. تطبيق نظام الـ Multi-tenancy وعزل البيانات عبر السكيمّا
         if (targetSchema) {
-            // تنظيف اسم السكيمّا لضمان الحماية من الـ SQL Injection (حروف وأرقام وأندرسكور فقط)
+            // تنظيف اسم السكيمّا لضمان الحماية من الـ SQL Injection
             const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
             
-            // أ) إنشاء السكيمّا إذا لم تكن موجودة مسبقاً لهذا العميل
+            // أ) إنشاء السكيمّا إذا لم تكن موجودة مسبقاً (أمان إضافي عند الحفظ لعدم فقدان الجداول)
             await client.query(`CREATE SCHEMA IF NOT EXISTS ${cleanSchema}`);
             
             // ب) تحويل مسار الاستعلامات القادمة لتعمل بداخل هذه السكيمّا تحديداً
-            await client.query(`SET search_path TO ${cleanSchema}`);
+            await client.query(`SET search_path TO ${cleanSchema}, public`);
+        } else {
+            // إذا لم يتم إرسال سكيمّا، يتم الحفظ في الافتراضية
+            await client.query(`SET search_path TO public`);
         }
         
-        // 5. تنفيذ الاستعلام المرسل من الواجهة (الآن سيتوجه تلقائياً للجداول داخل السكيمّا المحددة)
+        // 5. تنفيذ استعلام الحفظ أو التعديل أو الحذف (سيعمل داخل السكيمّا المحددة تلقائياً)
         const result = await client.query(query, params || []);
         
         return res.status(200).json({
