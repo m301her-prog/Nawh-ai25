@@ -23,9 +23,12 @@ export default async function handler(req, res) {
         ssl: { rejectUnauthorized: false }
     });
 
-    // 3. استقبال الـ Action (سواء إضافة أو تعديل أو حذف) والبيانات والسكيمّا من الهيدر
+    // 3. استقبال الـ Action والبيانات والسكيمّا من الهيدر
     const { action, id, debtData } = req.body;
     const targetSchema = req.headers['x-tenant-schema']; // يُرسل تلقائياً من الـ Context بالفرونت اند ليمثل الشركة
+
+    // 🔥 الحماية الذكية: إذا لم يجد كائن debtData، سيعتبر أن req.body هو كائن البيانات مباشرة
+    const d = debtData || req.body || {}; 
 
     try {
         await client.connect();
@@ -61,7 +64,6 @@ export default async function handler(req, res) {
 
         // 5. ترجمة الـ Action القادم من الواجهة إلى استعلام SQL حقيقي
         if (action === 'ADD' || action === 'INSERT') {
-            const d = debtData;
             query = `
                 INSERT INTO debts (
                     id, type, person_name, phone, amount, currency, due_date, 
@@ -70,12 +72,27 @@ export default async function handler(req, res) {
                 RETURNING *;
             `;
             params = [
-                d.id || `debt_${Date.now()}`, d.type, d.personName, d.phone, d.amount, d.currency, d.dueDate,
-                d.notes, d.status, d.isScheduled, d.scheduleType, d.installmentsCount, d.firstPaymentDate
+                id || d.id || `debt_${Date.now()}`, 
+                d.type || 'owed_to_me', 
+                d.personName || d.person_name || 'غير محدد', 
+                d.phone || null, 
+                parseFloat(d.amount) || 0, 
+                d.currency || 'DZD', 
+                d.dueDate || d.due_date || null,
+                d.notes || null, 
+                d.status || 'pending', 
+                d.isScheduled || d.is_scheduled || false, 
+                d.scheduleType || d.schedule_type || null, 
+                parseInt(d.installmentsCount) || 0, 
+                d.firstPaymentDate || d.first_payment_date || null
             ];
 
         } else if (action === 'UPDATE') {
-            const d = debtData;
+            const targetId = id || d.id;
+            if (!targetId) {
+                return res.status(400).json({ success: false, error: 'المعرف id مطلوب لإجراء التعديل' });
+            }
+
             query = `
                 UPDATE debts SET 
                     type = $2, person_name = $3, phone = $4, amount = $5, currency = $6, due_date = $7, 
@@ -84,13 +101,28 @@ export default async function handler(req, res) {
                 RETURNING *;
             `;
             params = [
-                id, d.type, d.personName, d.phone, d.amount, d.currency, d.dueDate,
-                d.notes, d.status, d.isScheduled, d.scheduleType, d.installmentsCount, d.firstPaymentDate
+                targetId, 
+                d.type, 
+                d.personName || d.person_name, 
+                d.phone || null, 
+                parseFloat(d.amount) || 0, 
+                d.currency || 'DZD', 
+                d.dueDate || d.due_date || null,
+                d.notes || null, 
+                d.status, 
+                d.isScheduled || d.is_scheduled || false, 
+                d.scheduleType || d.schedule_type || null, 
+                parseInt(d.installmentsCount) || 0, 
+                d.firstPaymentDate || d.first_payment_date || null
             ];
 
         } else if (action === 'DELETE') {
+            const targetId = id || d.id;
+            if (!targetId) {
+                return res.status(400).json({ success: false, error: 'المعرف id مطلوب لإجراء الحذف' });
+            }
             query = `DELETE FROM debts WHERE id = $1 RETURNING *;`;
-            params = [id];
+            params = [targetId];
         } else {
             return res.status(400).json({ success: false, error: 'العملية المطلوبة غير مدعومة' });
         }
