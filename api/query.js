@@ -39,18 +39,19 @@ export default async function handler(req, res) {
   try {
     await client.connect();
 
-    // تنظيف اسم السكيمّا لمنع الـ SQL Injection وحصرها في الحروف والأرقام
+    // تنظيف اسم السكيمّا لمنع الـ SQL Injection وحصرها في الحروف والأرقام وتحويلها لـ lowercase
     const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
     
     // أ) إنشاء السكيمّا الخاصة بالشركة/العميل إذا لم تكن موجودة مسبقاً
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${cleanSchema}`);
     
-    // ب) تحويل مسار العمل الحالي إلى هذه السكيمّا تحديداً
-    await client.query(`SET search_path TO ${cleanSchema}`);
+    // ب) ضبط مسار البحث للجلسة الحالية
+    await client.query(`SET search_path TO ${cleanSchema}, public`);
 
-    // ج) إنشاء جدول الديون بالهيكلية الكاملة وطبقاً لبيانات وحقول الواجهة الأمامية
+    // ج) إنشاء جدول الديون بالإشارة الصريحة لاسم السكيمّا (cleanSchema.debts) 
+    // هذا يضمن إنشاء الجدول داخل السكيمّا فوراً بدون حدوث خطأ (relation does not exist)
     await client.query(`
-      CREATE TABLE IF NOT EXISTS debts (
+      CREATE TABLE IF NOT EXISTS ${cleanSchema}.debts (
         id TEXT PRIMARY KEY,
         person_name TEXT NOT NULL,
         type TEXT NOT NULL,          -- دائن أو مدين (owed_to_me / i_owe)
@@ -67,10 +68,11 @@ export default async function handler(req, res) {
       );
     `);
     
-    // إرجاع استجابة نجاح التأسيس
+    // إرجاع استجابة نجاح التأسيس للواجهة الأمامية
     return res.status(200).json({
       success: true,
-      message: `تم إنشاء وتأسيس السكيمّا [${cleanSchema}] وجداولها بنجاح طبقاً لبيانات الواجهة.`
+      schemaName: cleanSchema,
+      message: `تم إنشاء وتأسيس السكيمّا [${cleanSchema}] وجداول الديون بنجاح.`
     });
 
   } catch (error) {
