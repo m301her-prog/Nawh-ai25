@@ -57,22 +57,22 @@ export default function DebtForm() {
     if (existingDebt) {
       setFormData({
         type: existingDebt.type,
-        personName: existingDebt.personName,
+        personName: existingDebt.personName || existingDebt.person_name || '',
         phone: existingDebt.phone || '',
-        amount: existingDebt.amount.toString(),
+        amount: existingDebt.amount ? existingDebt.amount.toString() : '',
         currency: existingDebt.currency || 'DZD',
-        dueDate: existingDebt.dueDate.split('T')[0],
+        dueDate: existingDebt.dueDate ? existingDebt.dueDate.split('T')[0] : (existingDebt.due_date ? existingDebt.due_date.split('T')[0] : ''),
         notes: existingDebt.notes || '',
-        status: existingDebt.status,
-        isScheduled: existingDebt.isScheduled || false,
-        scheduleType: existingDebt.scheduleType || 'monthly',
-        installmentsCount: existingDebt.installmentsCount?.toString() || '',
-        firstPaymentDate: existingDebt.firstPaymentDate
-          ? existingDebt.firstPaymentDate.split('T')[0]
+        status: existingDebt.status || 'pending',
+        isScheduled: existingDebt.isScheduled || existingDebt.is_scheduled || false,
+        scheduleType: existingDebt.scheduleType || existingDebt.schedule_type || 'monthly',
+        installmentsCount: (existingDebt.installmentsCount || existingDebt.installments_count)?.toString() || '',
+        firstPaymentDate: existingDebt.firstPaymentDate || existingDebt.first_payment_date
+          ? (existingDebt.firstPaymentDate || existingDebt.first_payment_date).split('T')[0]
           : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         scheduleData: existingDebt.scheduleData || null
       });
-      setShowScheduleCard(existingDebt.isScheduled || false);
+      setShowScheduleCard(existingDebt.isScheduled || existingDebt.is_scheduled || false);
     }
   }, [existingDebt]);
 
@@ -82,12 +82,12 @@ export default function DebtForm() {
 
     if (!formData.personName.trim()) {
       newErrors.personName = language === 'ar' ? 'الاسم مطلوب' :
-                              language === 'fr' ? 'Le nom est requis' : 'Name is required';
+                             language === 'fr' ? 'Le nom est requis' : 'Name is required';
     }
 
     if (!formData.amount || parseFloat(formData.amount) <= 0) {
       newErrors.amount = language === 'ar' ? 'المبلغ غير صالح' :
-                          language === 'fr' ? 'Montant invalide' : 'Invalid amount';
+                         language === 'fr' ? 'Montant invalide' : 'Invalid amount';
     }
 
     if (!formData.dueDate) {
@@ -106,13 +106,27 @@ export default function DebtForm() {
     if (!validate()) return;
 
     try {
+      // بناء هيكل البيانات المزدوج ليتوافق مع محرك الباك إند بأي صيغة متوقعة
       const debtData = {
-        ...formData,
+        id: id || undefined,
+        type: formData.type,
+        personName: formData.personName,
+        person_name: formData.personName, // إرسال نسختين للتوافق مع الباك إند
+        phone: formData.phone || null,
         amount: parseFloat(formData.amount),
+        currency: formData.currency,
+        dueDate: formData.dueDate,
+        due_date: formData.dueDate,
+        notes: formData.notes || null,
+        status: formData.status,
         isScheduled: showScheduleCard,
+        is_scheduled: showScheduleCard,
         scheduleType: showScheduleCard ? formData.scheduleType : null,
+        schedule_type: showScheduleCard ? formData.scheduleType : null,
         installmentsCount: showScheduleCard ? parseInt(formData.installmentsCount) || 0 : 0,
-        firstPaymentDate: showScheduleCard ? formData.firstPaymentDate : null
+        installments_count: showScheduleCard ? parseInt(formData.installmentsCount) || 0 : 0,
+        firstPaymentDate: showScheduleCard ? formData.firstPaymentDate : null,
+        first_payment_date: showScheduleCard ? formData.firstPaymentDate : null
       };
 
       if (isEditing) {
@@ -151,6 +165,7 @@ export default function DebtForm() {
       <header className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white p-4 sticky top-0 z-10 shadow-lg">
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={() => navigate(-1)}
             className="p-2 rounded-xl hover:bg-white/20 transition"
           >
@@ -530,12 +545,14 @@ export default function DebtForm() {
 
             <div className="flex gap-3">
               <button
+                type="button"
                 onClick={() => setShowDeleteConfirm(false)}
                 className="flex-1 py-3.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition"
               >
                 {t('cancel')}
               </button>
               <button
+                type="button"
                 onClick={handleDelete}
                 className="flex-1 py-3.5 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition"
               >
