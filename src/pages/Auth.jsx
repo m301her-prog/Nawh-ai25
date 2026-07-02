@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
-import { Wallet, ArrowLeft, Eye, EyeOff, User, Mail, Lock, Phone, Building2 } from 'lucide-react';
+import { Wallet, Eye, EyeOff, User, Mail, Lock, Phone, Building2 } from 'lucide-react';
 
 /**
  * Authentication Page
@@ -63,7 +63,7 @@ export default function Auth() {
       if (isLogin) {
         await login(formData.email, formData.password);
       } else {
-        // يمكنك تمرير formData.companyName إلى دالة الـ register الخاصة بك إذا كان الـ Backend يدعم ذلك
+        // نمرر البيانات الصافية للدالة، والـ Context سيتولى التعامل مع السيرفر السحابي مباشرة
         await register(formData.name, formData.email, formData.password, formData.phone, formData.companyName);
       }
     } catch (error) {
@@ -123,6 +123,7 @@ export default function Auth() {
           {/* Tab Switcher */}
           <div className="flex border-b border-gray-200 dark:border-gray-700">
             <button
+              type="button"
               onClick={() => !isLogin && setIsLogin(true)}
               className={`flex-1 py-4 text-center font-semibold transition ${
                 isLogin
@@ -133,6 +134,7 @@ export default function Auth() {
               {t('login')}
             </button>
             <button
+              type="button"
               onClick={() => isLogin && setIsLogin(false)}
               className={`flex-1 py-4 text-center font-semibold transition ${
                 !isLogin
@@ -320,6 +322,7 @@ export default function Auth() {
               <p className="text-gray-500 dark:text-gray-400">
                 {isLogin ? t('noAccount') : t('hasAccount')}
                 <button
+                  type="button"
                   onClick={toggleMode}
                   className="mr-2 font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
                 >
