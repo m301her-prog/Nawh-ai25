@@ -23,47 +23,56 @@ export default async function handler(req, res) {
         ssl: { rejectUnauthorized: false }
     });
 
-    // 3. استقبال البيانات والـ Action
-    const { action, id, debtData } = req.body;
+    // 3. استقبال البيانات والـ Action والهيدر الصارم
+    const { action, id, debtId, debtData, debt, updates } = req.body;
     const targetSchema = req.headers['x-tenant-schema'];
 
-    // الحماية المزدوجة لالتقاط كائن البيانات الصحيح مهما كانت هيكلة الفرونت إند
-    const d = debtData || req.body.data || req.body || {}; 
+    // التحقق الصارم من وجود السكيمّا وعدم قبول أي بديل افتراضي
+    if (!targetSchema || targetSchema.trim() === '') {
+        return res.status(400).json({ 
+            success: false, 
+            error: 'x-tenant-schema header is required. No default schema allowed.' 
+        });
+    }
+
+    // التقاط كائن البيانات الصحيح بمرونة عالية
+    const d = debtData || debt || updates || req.body.data || req.body || {}; 
+    const finalId = id || debtId || d.id;
 
     try {
         await client.connect();
         
-        // 4. تفعيل السكيمّا الخاصة بالشركة
-        if (targetSchema) {
-            const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-            await client.query(`CREATE SCHEMA IF NOT EXISTS "${cleanSchema}"`);
-            await client.query(`SET search_path TO "${cleanSchema}", public`);
-            
-            await client.query(`
-                CREATE TABLE IF NOT EXISTS debts (
-                    id TEXT PRIMARY KEY,
-                    type TEXT NOT NULL,
-                    person_name TEXT NOT NULL,
-                    phone TEXT,
-                    amount NUMERIC NOT NULL,
-                    currency TEXT,
-                    due_date DATE,
-                    notes TEXT,
-                    status TEXT,
-                    is_scheduled BOOLEAN,
-                    schedule_type TEXT,
-                    installments_count INT,
-                    first_payment_date DATE
-                );
-            `);
-        }
+        // 4. معالجة وتفعيل السكيمّا الممررة حصراً
+        const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+        
+        await client.query(`CREATE SCHEMA IF NOT EXISTS "${cleanSchema}"`);
+        await client.query(`SET search_path TO "${cleanSchema}"`);
+        
+        // تأكيد إنشاء الجدول بداخل السكيمّا الممررة قبل تنفيذ أي استعلام
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS debts (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                person_name TEXT NOT NULL,
+                phone TEXT,
+                amount NUMERIC NOT NULL,
+                currency TEXT,
+                due_date DATE,
+                notes TEXT,
+                status TEXT,
+                is_scheduled BOOLEAN,
+                schedule_type TEXT,
+                installments_count INT,
+                first_payment_date DATE
+            );
+        `);
 
         let query = '';
         let params = [];
 
         if (action === 'ADD' || action === 'INSERT' || action === 'UPDATE') {
             // صياغة ذكية لالتقاط المتغيرات بكل المسميات الممكنة (CamelCase أو snake_case)
-            const debtId = id || d.id || `debt_${Date.now()}`;
+            const activeId = finalId || `debt_${Date.now()}`;
             const type = d.type || 'owed_to_me';
             const personName = d.personName || d.person_name || d.person_Name || 'غير محدد';
             const phone = d.phone || d.personPhone || d.person_phone || null;
@@ -91,7 +100,7 @@ export default async function handler(req, res) {
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                     RETURNING *;
                 `;
-                params = [debtId, type, personName, phone, amount, currency, dueDate, notes, status, isScheduled, scheduleType, installmentsCount, firstPaymentDate];
+                params = [activeId, type, personName, phone, amount, currency, dueDate, notes, status, isScheduled, scheduleType, installmentsCount, firstPaymentDate];
             } else {
                 query = `
                     UPDATE debts SET 
@@ -100,14 +109,13 @@ export default async function handler(req, res) {
                     WHERE id = $1
                     RETURNING *;
                 `;
-                params = [debtId, type, personName, phone, amount, currency, dueDate, notes, status, isScheduled, scheduleType, installmentsCount, firstPaymentDate];
+                params = [activeId, type, personName, phone, amount, currency, dueDate, notes, status, isScheduled, scheduleType, installmentsCount, firstPaymentDate];
             }
 
         } else if (action === 'DELETE') {
-            const targetId = id || d.id;
-            if (!targetId) return res.status(400).json({ success: false, error: 'المعرف id مطلوب' });
+            if (!finalId) return res.status(400).json({ success: false, error: 'المعرف id مطلوب' });
             query = `DELETE FROM debts WHERE id = $1 RETURNING *;`;
-            params = [targetId];
+            params = [finalId];
         } else {
             return res.status(400).json({ success: false, error: 'العملية غير مدعومة' });
         }
