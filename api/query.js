@@ -18,13 +18,12 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // استقبال الاستعلام، البارامترات، واسم السكيمّا الخاصة بالحساب
-  // نتيح إرسال اسم السكيمّا إما في الـ Headers أو بداخل الـ body لراحة الواجهة الأمامية
-  const { query, params, schemaName } = req.body;
+  // استقبال اسم السكيمّا الخاصة بالحساب/الشركة من الـ body أو الـ headers
+  const { schemaName } = req.body;
   const targetSchema = schemaName || req.headers['x-tenant-schema'];
 
-  if (!query) {
-    return res.status(400).json({ error: 'الاستعلام query مطلوب' });
+  if (!targetSchema) {
+    return res.status(400).json({ error: 'اسم السكيمّا (schemaName) مطلوب لتأسيس الحساب' });
   }
 
   // 2. إعداد الاتصال الآمن مع Neon لتجنب مشاكل الـ SSL في تطبيقات الهاتف
@@ -40,29 +39,42 @@ export default async function handler(req, res) {
   try {
     await client.connect();
 
-    // 3. السحر هنا: إذا تم إرسال اسم سكيمّا، نقوم بإنشائها والتحويل إليها فوراً
-    if (targetSchema) {
-      // تنظيف اسم السكيمّا لمنع الـ SQL Injection وحصرها في الحروف والأرقام فقط
-      const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-      
-      // أ) إنشاء السكيمّا لو كانت جديدة تماماً للحساب الجديد
-      await client.query(`CREATE SCHEMA IF NOT EXISTS ${cleanSchema}`);
-      
-      // ب) توجيه كل الاستعلامات التالية لتنفذ داخل هذه السكيمّا فقط
-      await client.query(`SET search_path TO ${cleanSchema}`);
-    }
-
-    // 4. تنفيذ الاستعلام المرسل من الفرونت اند (والذي سيعمل الآن داخل السكيمّا المحددة)
-    const result = await client.query(query, params || []);
+    // تنظيف اسم السكيمّا لمنع الـ SQL Injection وحصرها في الحروف والأرقام
+    const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
     
+    // أ) إنشاء السكيمّا الخاصة بالشركة/العميل إذا لم تكن موجودة مسبقاً
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${cleanSchema}`);
+    
+    // ب) تحويل مسار العمل الحالي إلى هذه السكيمّا تحديداً
+    await client.query(`SET search_path TO ${cleanSchema}`);
+
+    // ج) إنشاء جدول الديون بالهيكلية الكاملة وطبقاً لبيانات وحقول الواجهة الأمامية
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS debts (
+        id TEXT PRIMARY KEY,
+        person_name TEXT NOT NULL,
+        type TEXT NOT NULL,          -- دائن أو مدين (owed_to_me / i_owe)
+        status TEXT NOT NULL,        -- حالة الدين (pending / paid / partially_paid)
+        amount NUMERIC DEFAULT 0,    -- المبلغ المستحق
+        currency TEXT DEFAULT 'DZD', -- العملة
+        phone TEXT,                  -- رقم الهاتف (للواتساب)
+        due_date DATE,               -- تاريخ الاستحقاق
+        notes TEXT,                  -- الملاحظات والبيانات الإضافية
+        is_scheduled BOOLEAN DEFAULT FALSE, -- هل الدين مجدول/مقسط؟
+        schedule_type TEXT,          -- نوع الجدولة (يومي، أسبوعي، شهري...)
+        installments_count INT DEFAULT 0,  -- عدد الدفعات
+        first_payment_date DATE      -- تاريخ أول دفعة
+      );
+    `);
+    
+    // إرجاع استجابة نجاح التأسيس
     return res.status(200).json({
       success: true,
-      rows: result.rows,
-      rowCount: result.rowCount
+      message: `تم إنشاء وتأسيس السكيمّا [${cleanSchema}] وجداولها بنجاح طبقاً لبيانات الواجهة.`
     });
 
   } catch (error) {
-    console.error('Database Proxy Error:', error);
+    console.error('Schema Initialization Error:', error);
     return res.status(500).json({ error: error.message });
   } finally {
     // إغلاق الاتصال بأمان
