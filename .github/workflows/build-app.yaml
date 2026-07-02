@@ -93,10 +93,9 @@ jobs:
       - name: 7. Generate App Icons & Splash
         run: |
           mkdir -p assets
-          # البحث عن الصور ونسخها للأصول
-          find . -name "icon-only.png" -exec cp {} assets/icon-only.png \;
-          find . -name "icon-background.png" -exec cp {} assets/icon-background.png \;
-          find . -name "icon-foreground.png" -exec cp {} assets/icon-foreground.png \;
+          # استخدام ملف الـ foreground لتغليف الأيقونة الأساسية والخلفيات بناءً على طلبك
+          cp assets/icon-foreground.png assets/icon-only.png
+          cp assets/icon-foreground.png assets/icon-background.png
           npx capacitor-assets generate --android
 
       # 8. بناء ملفات أندرويد الثنائية
