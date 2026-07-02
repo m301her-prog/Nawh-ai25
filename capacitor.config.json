@@ -1,6 +1,6 @@
 {
-  "appId": "ai.nawah.app",
-  "appName": "نواة AI",
+  "appId": "com.mydept.app",
+  "appName": "MY DEPT",
   "webDir": "dist",
   "server": {
     "androidScheme": "https",
