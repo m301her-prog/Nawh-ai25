@@ -1,7 +1,7 @@
 import pg from 'pg';
 
 export default async function handler(req, res) {
-    // 1. إعدادات CORS الكاملة لتسهيل اتصال الهاتف والـ WebView
+    // 1. إعدادات CORS الكاملة
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -23,23 +23,22 @@ export default async function handler(req, res) {
         ssl: { rejectUnauthorized: false }
     });
 
-    // 3. استقبال الـ Action والبيانات والسكيمّا من الهيدر
+    // 3. استقبال البيانات والـ Action
     const { action, id, debtData } = req.body;
-    const targetSchema = req.headers['x-tenant-schema']; // يُرسل تلقائياً من الـ Context بالفرونت اند ليمثل الشركة
+    const targetSchema = req.headers['x-tenant-schema'];
 
-    // 🔥 الحماية الذكية: إذا لم يجد كائن debtData، سيعتبر أن req.body هو كائن البيانات مباشرة
-    const d = debtData || req.body || {}; 
+    // الحماية المزدوجة لالتقاط كائن البيانات الصحيح مهما كانت هيكلة الفرونت إند
+    const d = debtData || req.body.data || req.body || {}; 
 
     try {
         await client.connect();
         
-        // 4. عزل مسار البيانات وتفعيل السكيمّا الخاصة بالعميل/الشركة تلقائياً
+        // 4. تفعيل السكيمّا الخاصة بالشركة
         if (targetSchema) {
             const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-            await client.query(`CREATE SCHEMA IF NOT EXISTS ${cleanSchema}`);
-            await client.query(`SET search_path TO ${cleanSchema}, public`);
+            await client.query(`CREATE SCHEMA IF NOT EXISTS "${cleanSchema}"`);
+            await client.query(`SET search_path TO "${cleanSchema}", public`);
             
-            // إنشاء جدول الديون داخل هذه السكيمّا تلقائياً إن لم يكن موجوداً، لضمان عدم حدوث خطأ
             await client.query(`
                 CREATE TABLE IF NOT EXISTS debts (
                     id TEXT PRIMARY KEY,
@@ -62,79 +61,59 @@ export default async function handler(req, res) {
         let query = '';
         let params = [];
 
-        // 5. ترجمة الـ Action القادم من الواجهة إلى استعلام SQL حقيقي
-        if (action === 'ADD' || action === 'INSERT') {
-            query = `
-                INSERT INTO debts (
-                    id, type, person_name, phone, amount, currency, due_date, 
-                    notes, status, is_scheduled, schedule_type, installments_count, first_payment_date
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-                RETURNING *;
-            `;
-            params = [
-                id || d.id || `debt_${Date.now()}`, 
-                d.type || 'owed_to_me', 
-                d.personName || d.person_name || 'غير محدد', 
-                d.phone || null, 
-                parseFloat(d.amount) || 0, 
-                d.currency || 'DZD', 
-                d.dueDate || d.due_date || null,
-                d.notes || null, 
-                d.status || 'pending', 
-                d.isScheduled || d.is_scheduled || false, 
-                d.scheduleType || d.schedule_type || null, 
-                parseInt(d.installmentsCount) || 0, 
-                d.firstPaymentDate || d.first_payment_date || null
-            ];
+        if (action === 'ADD' || action === 'INSERT' || action === 'UPDATE') {
+            // صياغة ذكية لالتقاط المتغيرات بكل المسميات الممكنة (CamelCase أو snake_case)
+            const debtId = id || d.id || `debt_${Date.now()}`;
+            const type = d.type || 'owed_to_me';
+            const personName = d.personName || d.person_name || d.person_Name || 'غير محدد';
+            const phone = d.phone || d.personPhone || d.person_phone || null;
+            const amount = parseFloat(d.amount) || 0;
+            const currency = d.currency || 'DZD';
+            const notes = d.notes || null;
+            const status = d.status || 'pending';
+            const isScheduled = d.isScheduled !== undefined ? d.isScheduled : (d.is_scheduled || false);
+            const scheduleType = d.scheduleType || d.schedule_type || null;
+            const installmentsCount = parseInt(d.installmentsCount) || parseInt(d.installments_count) || 0;
 
-        } else if (action === 'UPDATE') {
-            const targetId = id || d.id;
-            if (!targetId) {
-                return res.status(400).json({ success: false, error: 'المعرف id مطلوب لإجراء التعديل' });
+            // فحص وتأمين التواريخ الفارغة لمنع الـ Invalid Date بالواجهة الأمامية
+            const cleanDate = (dateVal) => {
+                if (!dateVal || dateVal.toString().trim() === '' || dateVal.toString().includes('Invalid')) return null;
+                return dateVal;
+            };
+            const dueDate = cleanDate(d.dueDate || d.due_date);
+            const firstPaymentDate = cleanDate(d.firstPaymentDate || d.first_payment_date);
+
+            if (action === 'ADD' || action === 'INSERT') {
+                query = `
+                    INSERT INTO debts (
+                        id, type, person_name, phone, amount, currency, due_date, 
+                        notes, status, is_scheduled, schedule_type, installments_count, first_payment_date
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                    RETURNING *;
+                `;
+                params = [debtId, type, personName, phone, amount, currency, dueDate, notes, status, isScheduled, scheduleType, installmentsCount, firstPaymentDate];
+            } else {
+                query = `
+                    UPDATE debts SET 
+                        type = $2, person_name = $3, phone = $4, amount = $5, currency = $6, due_date = $7, 
+                        notes = $8, status = $9, is_scheduled = $10, schedule_type = $11, installments_count = $12, first_payment_date = $13
+                    WHERE id = $1
+                    RETURNING *;
+                `;
+                params = [debtId, type, personName, phone, amount, currency, dueDate, notes, status, isScheduled, scheduleType, installmentsCount, firstPaymentDate];
             }
-
-            query = `
-                UPDATE debts SET 
-                    type = $2, person_name = $3, phone = $4, amount = $5, currency = $6, due_date = $7, 
-                    notes = $8, status = $9, is_scheduled = $10, schedule_type = $11, installments_count = $12, first_payment_date = $13
-                WHERE id = $1
-                RETURNING *;
-            `;
-            params = [
-                targetId, 
-                d.type, 
-                d.personName || d.person_name, 
-                d.phone || null, 
-                parseFloat(d.amount) || 0, 
-                d.currency || 'DZD', 
-                d.dueDate || d.due_date || null,
-                d.notes || null, 
-                d.status, 
-                d.isScheduled || d.is_scheduled || false, 
-                d.scheduleType || d.schedule_type || null, 
-                parseInt(d.installmentsCount) || 0, 
-                d.firstPaymentDate || d.first_payment_date || null
-            ];
 
         } else if (action === 'DELETE') {
             const targetId = id || d.id;
-            if (!targetId) {
-                return res.status(400).json({ success: false, error: 'المعرف id مطلوب لإجراء الحذف' });
-            }
+            if (!targetId) return res.status(400).json({ success: false, error: 'المعرف id مطلوب' });
             query = `DELETE FROM debts WHERE id = $1 RETURNING *;`;
             params = [targetId];
         } else {
-            return res.status(400).json({ success: false, error: 'العملية المطلوبة غير مدعومة' });
+            return res.status(400).json({ success: false, error: 'العملية غير مدعومة' });
         }
 
-        // 6. تنفيذ الاستعلام المترجم
         const result = await client.query(query, params);
-        
-        return res.status(200).json({
-            success: true,
-            rows: result.rows,
-            rowCount: result.rowCount
-        });
+        return res.status(200).json({ success: true, rows: result.rows, rowCount: result.rowCount });
 
     } catch (error) {
         console.error(`[DATABASE ERROR ON ${action}]:`, error);
