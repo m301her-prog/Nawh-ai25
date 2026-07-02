@@ -23,32 +23,37 @@ export default async function handler(req, res) {
         ssl: { rejectUnauthorized: false }
     });
 
-    // 3. استقبال البيانات والـ Action والهيدر الصارم
-    const { action, id, debtId, debtData, debt, updates } = req.body;
-    const targetSchema = req.headers['x-tenant-schema'];
-
-    // التحقق الصارم من وجود السكيمّا وعدم قبول أي بديل افتراضي
-    if (!targetSchema || targetSchema.trim() === '') {
-        return res.status(400).json({ 
-            success: false, 
-            error: 'x-tenant-schema header is required. No default schema allowed.' 
-        });
-    }
+    // 3. استقبال البيانات والـ Action
+    const { action, id, debtId, debtData, debt, updates, userId } = req.body;
+    let targetSchema = req.headers['x-tenant-schema'];
 
     // التقاط كائن البيانات الصحيح بمرونة عالية
     const d = debtData || debt || updates || req.body.data || req.body || {}; 
     const finalId = id || debtId || d.id;
+    const finalUserId = userId || d.userId || req.body.userId;
+
+    // حل ذكي: إذا لم يتم إرسال الهيدر، نقوم بإنشاء اسم السكيمّا بناءً على معرف المستخدم لمنع خطأ 400
+    if (!targetSchema || targetSchema.trim() === '') {
+        if (finalUserId) {
+            targetSchema = `schema_${finalUserId}`;
+        } else {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'x-tenant-schema header or userId in body is required.' 
+            });
+        }
+    }
 
     try {
         await client.connect();
         
-        // 4. معالجة وتفعيل السكيمّا الممررة حصراً
+        // 4. معالجة وتفعيل السكيمّا الخاصة بالمستأجر/الشركة حصراً
         const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
         
         await client.query(`CREATE SCHEMA IF NOT EXISTS "${cleanSchema}"`);
         await client.query(`SET search_path TO "${cleanSchema}"`);
         
-        // تأكيد إنشاء الجدول بداخل السكيمّا الممررة قبل تنفيذ أي استعلام
+        // تأكيد إنشاء الجدول بداخل السكيمّا قبل تنفيذ أي استعلام لتفادي خطأ (does not exist)
         await client.query(`
             CREATE TABLE IF NOT EXISTS debts (
                 id TEXT PRIMARY KEY,
@@ -71,7 +76,6 @@ export default async function handler(req, res) {
         let params = [];
 
         if (action === 'ADD' || action === 'INSERT' || action === 'UPDATE') {
-            // صياغة ذكية لالتقاط المتغيرات بكل المسميات الممكنة (CamelCase أو snake_case)
             const activeId = finalId || `debt_${Date.now()}`;
             const type = d.type || 'owed_to_me';
             const personName = d.personName || d.person_name || d.person_Name || 'غير محدد';
@@ -84,7 +88,6 @@ export default async function handler(req, res) {
             const scheduleType = d.scheduleType || d.schedule_type || null;
             const installmentsCount = parseInt(d.installmentsCount) || parseInt(d.installments_count) || 0;
 
-            // فحص وتأمين التواريخ الفارغة لمنع الـ Invalid Date بالواجهة الأمامية
             const cleanDate = (dateVal) => {
                 if (!dateVal || dateVal.toString().trim() === '' || dateVal.toString().includes('Invalid')) return null;
                 return dateVal;
