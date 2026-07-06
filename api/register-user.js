@@ -1,3 +1,4 @@
+// api/update-user-status.js
 import pg from 'pg';
 
 export default async function handler(req, res) {
@@ -6,7 +7,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // إعداد نص الاتصال بقاعدة البيانات مع تفعيل SSL لـ Neon
+  // إعداد نص الاتصال بقاعدة البيانات مع تفعيل SSL لـ Neon تماماً مثل كود التسجيل
   const baseConnectionString = process.env.DATABASE_URL;
   const separator = baseConnectionString.includes('?') ? '&' : '?';
   const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
@@ -19,77 +20,44 @@ export default async function handler(req, res) {
   });
 
   try {
-    // استخراج المدخلات من واجهة المستخدم (بما فيها اسم الشركة)
-    const { name, companyName, email, password, phone } = req.body;
+    // استخراج المعطيات من واجهة المستخدم
+    const { userId, active } = req.body;
 
-    // التحقق من وجود الحقول الأساسية المطلوبة بالتسجيل
-    if (!name || !companyName || !email || !password) {
-      return res.status(400).json({ 
-        error: 'يرجى ملء جميع الحقول الأساسية (الاسم، اسم الشركة، البريد، كلمة المرور)' 
-      });
+    if (!userId) {
+      return res.status(400).json({ error: 'userId هو حقل مطلوب' });
     }
 
-    const cleanEmail = email.toLowerCase().trim();
+    // تحويل القيمة القادمة لـ Boolean صريح متوافق مع عمود الـ BOOLEAN بالجدول
+    const isTrueActive = active === true || active === 'true' || active === 1 || active === '1';
 
     // الاتصال بقاعدة البيانات
     await client.connect();
 
-    // 1. التأكد التلقائي من تواجد الجدول وهيكليته الصحيحة داخل قاعدة البيانات
-    const createTableQuery = `
-      CREATE TABLE IF NOT EXISTS app_users (
-        id VARCHAR(50) PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        company_name VARCHAR(150) NOT NULL,
-        email VARCHAR(150) UNIQUE NOT NULL,
-        password VARCHAR(100) NOT NULL,
-        phone VARCHAR(50),
-        is_admin BOOLEAN DEFAULT FALSE,
-        active BOOLEAN DEFAULT TRUE,
-        created_at VARCHAR(50) NOT NULL
-      );
-    `;
-    await client.query(createTableQuery);
-
-    // 2. التحقق مما إذا كان البريد الإلكتروني مسجلاً مسبقاً
-    const checkUserQuery = 'select id from app_users where lower(email) = $1 limit 1';
-    const checkResult = await client.query(checkUserQuery, [cleanEmail]);
-
-    if (checkResult.rows.length > 0) {
-      return res.status(400).json({ error: 'هذا البريد الإلكتروني مسجل بالفعل' });
-    }
-
-    // 3. تجهيز بيانات الحساب الجديد
-    const userId = 'usr_' + Math.random().toString(36).substring(2, 11);
-    const isAdmin = cleanEmail === 'admin@debts.dz';
-    const createdAt = new Date().toISOString();
-
-    // 4. استعلام إدخال الحساب الجديد شاملاً عمود اسم الشركة (company_name)
-    const insertQuery = `
-      insert into app_users (id, name, company_name, email, password, phone, is_admin, active, created_at)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    // استعلام التحديث الموجه للجدول الصحيح app_users
+    const updateQuery = `
+      UPDATE app_users 
+      SET active = $1 
+      WHERE id = $2
+      RETURNING id, name, email, active;
     `;
     
-    await client.query(insertQuery, [
-      userId, 
-      name, 
-      companyName, // القيمة الجديدة القادمة من الواجهة
-      cleanEmail, 
-      password, 
-      phone || '', 
-      isAdmin, 
-      true, 
-      createdAt
-    ]);
+    const result = await client.query(updateQuery, [isTrueActive, userId]);
+
+    // إذا لم يتم العثور على الحساب
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'المستخدم غير موجود في قاعدة البيانات' });
+    }
 
     // إرجاع استجابة النجاح
     return res.status(200).json({
-      message: 'تم إنشاء الحساب بنجاح عبر الـ API',
-      userId: userId
+      success: true,
+      message: 'تم تحديث حالة الحساب بنجاح داخل قاعدة البيانات',
+      user: result.rows[0]
     });
 
   } catch (error) {
-    console.error('Registration API Error:', error);
-    return res.status(500).json({ error: 'حدث خطأ في الخادم أثناء إنشاء الحساب، يرجى المحاولة لاحقاً' });
+    console.error('Update Status API Error:', error);
+    return res.status(500).json({ error: 'حدث خطأ في السيرفر أثناء تحديث الحالة' });
   } finally {
     // إغلاق الاتصال بأمان
     await client.end().catch(err => console.error('Error closing client:', err));
