@@ -156,8 +156,17 @@ export function AppProvider({ children }) {
 
       const serverUser = data.user;
 
-      if (serverUser.active === false || serverUser.active === 'false') {
-        throw new Error(language === 'ar' ? 'تم غلق هذا الحساب مؤقتاً، يرجى التواصل مع الإدارة' : 'Account suspended');
+      // 👈 تحقق صارم وشامل من حالة تعطيل الحساب لجميع الصيغ المحتملة القادمة من الباك إند
+      const isAccountSuspended = 
+        serverUser.active === false || 
+        serverUser.active === 'false' || 
+        serverUser.active === 0 || 
+        serverUser.active === '0' ||
+        serverUser.status === 'disabled' ||
+        serverUser.status === 'inactive';
+
+      if (isAccountSuspended) {
+        throw new Error(language === 'ar' ? 'تم غلق هذا الحساب، يرجى التواصل مع الإدارة' : 'Account suspended');
       }
 
       const authenticatedUser = {
