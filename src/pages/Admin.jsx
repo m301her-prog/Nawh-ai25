@@ -49,7 +49,7 @@ export default function Admin() {
     return null;
   }
 
-  const activeUsers = users.filter(u => u.active).length;
+  const activeUsers = users.filter(u => u.active === true || u.active === 'true' || u.active === 1).length;
 
   const formatDate = (dateString) => {
     const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
@@ -62,11 +62,15 @@ export default function Admin() {
 
   const handleToggleStatus = async (userId, currentStatus) => {
     try {
-      await toggleUserStatus(userId, !currentStatus);
+      // تحويل الحالة الحالية للتأكد من إرسال القيمة المعاكسة كـ Boolean صريح تماماً للمحرك
+      const isCurrentlyActive = currentStatus === true || currentStatus === 'true' || currentStatus === 1;
+      const nextStatus = !isCurrentlyActive; // إذا كان مفعل سيصبح false، وإذا كان معطل سيصبح true
+
+      await toggleUserStatus(userId, nextStatus);
       showNotification(
-        currentStatus
-          ? (language === 'ar' ? 'تم تعطيل المستخدم' : language === 'fr' ? 'Utilisateur désactivé' : 'User deactivated')
-          : (language === 'ar' ? 'تم تفعيل المستخدم' : language === 'fr' ? 'Utilisateur activé' : 'User activated'),
+        nextStatus
+          ? (language === 'ar' ? 'تم تفعيل الحساب بنجاح' : language === 'fr' ? 'Utilisateur activé' : 'User activated')
+          : (language === 'ar' ? 'تم تعطيل الحساب بنجاح' : language === 'fr' ? 'Utilisateur désactivé' : 'User deactivated'),
         'success'
       );
     } catch (error) {
@@ -173,88 +177,100 @@ export default function Admin() {
 
           {users.length > 0 ? (
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
-              {users.map(u => (
-                <div
-                  key={u.id}
-                  className="p-5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
-                >
-                  <div className="flex items-center gap-4">
-                    {/* Avatar */}
-                    <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-white text-lg ${
-                      u.active
-                        ? 'bg-gradient-to-br from-purple-400 to-indigo-500'
-                        : 'bg-gray-400'
-                    }`}>
-                      {(u.name?.[0] || u.email?.[0] || 'U').toUpperCase()}
-                    </div>
+              {users.map(u => {
+                // فحص دقيق لحالة الحساب لضمان تماسك العرض والتحكم
+                const isUserActive = u.active === true || u.active === 'true' || u.active === 1;
 
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-bold text-gray-900 dark:text-white truncate">
-                          {u.name || 'User'}
-                        </p>
-                        {u.active && (
-                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                        )}
-                        {u.isAdmin && (
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
-                            Admin
-                          </span>
-                        )}
-                        {!u.active && (
-                          <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-500">
-                            {language === 'ar' ? 'معطل' : language === 'fr' ? 'Inactif' : 'Inactive'}
-                          </span>
-                        )}
+                return (
+                  <div
+                    key={u.id}
+                    className="p-5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* Avatar */}
+                      <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-white text-lg ${
+                        isUserActive
+                          ? 'bg-gradient-to-br from-purple-400 to-indigo-500'
+                          : 'bg-gray-400'
+                      }`}>
+                        {(u.name?.[0] || u.email?.[0] || 'U').toUpperCase()}
                       </div>
 
-                      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mt-1">
-                        <Mail className="w-3.5 h-3.5" />
-                        <span className="truncate">{u.email}</span>
-                      </div>
-
-                      {u.createdAt && (
-                        <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-1">
-                          <Calendar className="w-3 h-3" />
-                          {formatDate(u.createdAt)}
+                      {/* Info */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-gray-900 dark:text-white truncate">
+                            {u.name || 'User'}
+                          </p>
+                          {isUserActive ? (
+                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                          ) : (
+                            <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                          )}
+                          {u.isAdmin && (
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+                              Admin
+                            </span>
+                          )}
+                          {!isUserActive && (
+                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400">
+                              {language === 'ar' ? 'معطل' : language === 'fr' ? 'Inactif' : 'Inactive'}
+                            </span>
+                          )}
                         </div>
-                      )}
-                    </div>
 
-                    {/* Actions */}
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleToggleStatus(u.id, u.active)}
-                        disabled={loading || u.isAdmin}
-                        className={`p-2.5 rounded-xl transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                          u.active
-                            ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 hover:bg-yellow-200 dark:hover:bg-yellow-900/50'
-                            : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 hover:bg-emerald-200 dark:hover:bg-emerald-900/50'
-                        }`}
-                        title={u.active ? t('deactivate') : t('activate')}
-                      >
-                        {u.active ? (
-                          <UserX className="w-5 h-5" />
-                        ) : (
-                          <UserCheck className="w-5 h-5" />
+                        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mt-1">
+                          <Mail className="w-3.5 h-3.5" />
+                          <span className="truncate">{u.email}</span>
+                        </div>
+
+                        {u.createdAt && (
+                          <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-1">
+                            <Calendar className="w-3 h-3" />
+                            {formatDate(u.createdAt)}
+                          </div>
                         )}
-                      </button>
+                      </div>
 
-                      {!u.isAdmin && (
+                      {/* Actions Buttons - الأزرار الواضحة والنصية الجديدة */}
+                      <div className="flex items-center gap-2">
                         <button
-                          onClick={() => handleDeleteUser(u.id, u.name || 'User')}
-                          disabled={loading}
-                          className="p-2.5 rounded-xl bg-red-100 dark:bg-red-900/30 text-red-600 hover:bg-red-200 dark:hover:bg-red-900/50 transition disabled:opacity-50"
-                          title={t('deleteUser')}
+                          onClick={() => handleToggleStatus(u.id, u.active)}
+                          disabled={loading || u.isAdmin || u.email === 'admin@debts.dz'}
+                          className={`flex items-center gap-1 px-3 py-2 text-xs font-bold rounded-xl shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                            isUserActive
+                              ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50'
+                              : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50'
+                          }`}
                         >
-                          <Trash2 className="w-5 h-5" />
+                          {isUserActive ? (
+                            <>
+                              <UserX className="w-4 h-4" />
+                              <span>{language === 'ar' ? 'تعطيل الحساب' : language === 'fr' ? 'Désactiver' : 'Deactivate'}</span>
+                            </>
+                          ) : (
+                            <>
+                              <UserCheck className="w-4 h-4" />
+                              <span>{language === 'ar' ? 'تفعيل الحساب' : language === 'fr' ? 'Activer' : 'Activate'}</span>
+                            </>
+                          )}
                         </button>
-                      )}
+
+                        {!u.isAdmin && u.email !== 'admin@debts.dz' && (
+                          <button
+                            onClick={() => handleDeleteUser(u.id, u.name || 'User')}
+                            disabled={loading}
+                            className="p-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-red-900/30 dark:hover:text-red-400 transition disabled:opacity-50"
+                            title={t('deleteUser')}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="p-12 text-center">
