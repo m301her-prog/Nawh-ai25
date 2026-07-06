@@ -20,6 +20,7 @@ import neonService, {
   isNeonConfigured
 } from '../services/neonService.js';
 import { translations } from '../i18n/translations.jsx';
+import { LocalNotifications } from '@capacitor/local-notifications'; // 👈 استيراد حزمة الإشعارات المحلية للاندرو
 
 const AppContext = createContext(null);
 
@@ -432,19 +433,43 @@ export function AppProvider({ children }) {
     }
   }, [user, syncDebtsFromServer]);
 
-  // Request notification permission
+  // Request notification permission - تعديل جذري ليتوافق مع نظام أندرويد عبر كاباسيتور
   const requestNotificationPermission = async () => {
-    if ('Notification' in window) {
-      const permission = await Notification.requestPermission();
-      return permission === 'granted';
+    try {
+      let status = await LocalNotifications.checkPermissions();
+      if (status.display === 'prompt' || status.display === 'denied') {
+        status = await LocalNotifications.requestPermissions();
+      }
+      return status.display === 'granted';
+    } catch (error) {
+      console.error("Error checking/requesting local notification permission:", error);
+      return false;
     }
-    return false;
   };
 
-  // Send local notification
-  const sendNotification = (title, body) => {
-    if (notificationsEnabled && 'Notification' in window && Notification.permission === 'granted') {
-      new Notification(title, { body, icon: '/vite.svg' });
+  // Send local notification - تعديل دالة الإرسال لتعمل محلياً على الهاتف
+  const sendNotification = async (title, body) => {
+    if (notificationsEnabled) {
+      try {
+        const status = await LocalNotifications.checkPermissions();
+        if (status.display === 'granted') {
+          await LocalNotifications.schedule({
+            notifications: [
+              {
+                title: title,
+                body: body,
+                id: Math.floor(Math.random() * 10000),
+                schedule: { at: new Date(Date.now() + 500) },
+                sound: null,
+                attachments: null,
+                actionTypeId: ""
+              }
+            ]
+          });
+        }
+      } catch (error) {
+        console.error("Error sending local notification:", error);
+      }
     }
   };
 
