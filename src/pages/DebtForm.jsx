@@ -15,7 +15,11 @@ import {
   AlertCircle,
   Info,
   Clock,
-  Repeat
+  Repeat,
+  ChevronDown,
+  ChevronUp,
+  PlusCircle,
+  CheckCircle2
 } from 'lucide-react';
 import { currencies } from '../i18n/translations.jsx';
 
@@ -52,6 +56,11 @@ export default function DebtForm() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showScheduleCard, setShowScheduleCard] = useState(false);
 
+  // إدارة الدفعات المضافة والمسددة داخلياً في الشاشة
+  const [showPaymentsSection, setShowPaymentsSection] = useState(false);
+  const [paymentsList, setPaymentsList] = useState([]);
+  const [newPayment, setNewPayment] = useState({ amount: '', type: 'record' }); // type: 'record' (إضافة دفعة) أو 'settle' (تسديد دفعة)
+
   // Load existing debt data for editing
   useEffect(() => {
     if (existingDebt) {
@@ -73,6 +82,11 @@ export default function DebtForm() {
         scheduleData: existingDebt.scheduleData || null
       });
       setShowScheduleCard(existingDebt.isScheduled || existingDebt.is_scheduled || false);
+      
+      // تحميل الدفعات المسجلة مسبقاً إن وجدت في بيانات الدين
+      if (existingDebt.paymentsList || existingDebt.payments_list) {
+        setPaymentsList(existingDebt.paymentsList || existingDebt.payments_list);
+      }
     }
   }, [existingDebt]);
 
@@ -97,6 +111,43 @@ export default function DebtForm() {
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  // معالجة إضافة أو تسديد دفعة داخل الجدول مع إطلاق إشعار محلي فوراً
+  const handleAddPaymentAction = () => {
+    const amt = parseFloat(newPayment.amount);
+    if (!amt || amt <= 0) {
+      showNotification(language === 'ar' ? 'الرجاء إدخال مبلغ دفعة صحيح' : 'Please enter a valid payment amount', 'error');
+      return;
+    }
+
+    const paymentItem = {
+      id: Date.now().toString(),
+      amount: amt,
+      type: newPayment.type,
+      date: new Date().toISOString().split('T')[0]
+    };
+
+    setPaymentsList(prev => [paymentItem, ...prev]);
+    
+    // إطلاق الإشعار المحلي التفاعلي حسب نوع العملية
+    if (newPayment.type === 'record') {
+      showNotification(
+        language === 'ar' 
+          ? `تم تسجيل إضافة دفعة بمبلغ ${amt} ${formData.currency} بنجاح` 
+          : `Payment installment of ${amt} ${formData.currency} added successfully`, 
+        'success'
+      );
+    } else {
+      showNotification(
+        language === 'ar' 
+          ? `تم تسديد دفعة بمبلغ ${amt} ${formData.currency} بنجاح` 
+          : `Settle payment of ${amt} ${formData.currency} recorded successfully`, 
+        'success'
+      );
+    }
+
+    setNewPayment(prev => ({ ...prev, amount: '' }));
   };
 
   // Handle form submission
@@ -126,7 +177,8 @@ export default function DebtForm() {
         installmentsCount: showScheduleCard ? parseInt(formData.installmentsCount) || 0 : 0,
         installments_count: showScheduleCard ? parseInt(formData.installmentsCount) || 0 : 0,
         firstPaymentDate: showScheduleCard ? formData.firstPaymentDate : null,
-        first_payment_date: showScheduleCard ? formData.firstPaymentDate : null
+        first_payment_date: showScheduleCard ? formData.firstPaymentDate : null,
+        paymentsList: paymentsList // إرسال مصفوفة الدفعات المحدثة إلى قاعدة البيانات
       };
 
       if (isEditing) {
@@ -359,6 +411,128 @@ export default function DebtForm() {
             </select>
           </div>
         )}
+
+        {/* قسم إدارة وتسجيل ارقام الدفعات والتسديد الذكي للجدول */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden border border-emerald-100 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={() => setShowPaymentsSection(!showPaymentsSection)}
+            className="w-full px-5 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                <DollarSign className="w-5 h-5" />
+              </div>
+              <div className="text-start">
+                <p className="font-bold text-gray-900 dark:text-white text-sm">
+                  {language === 'ar' ? 'إدارة وحركة دفعات الدين المعجل' : 'Debt Installments Management'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {language === 'ar' ? `المسجلة حالياً: (${paymentsList.length}) دفعة` : `Total registered: (${paymentsList.length})`}
+                </p>
+              </div>
+            </div>
+            {showPaymentsSection ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+          </button>
+
+          {showPaymentsSection && (
+            <div className="p-5 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50 space-y-4 animate-in fade-in duration-200">
+              {/* أدوات الإدخال والتسديد البيني المنسق */}
+              <div className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-600 space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewPayment(prev => ({ ...prev, type: 'record' }))}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 border ${
+                      newPayment.type === 'record'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                        : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-transparent'
+                    }`}
+                  >
+                    <PlusCircle className="w-3.5 h-3.5" />
+                    {language === 'ar' ? 'إضافة دفعة سابقة' : 'Add Installment'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewPayment(prev => ({ ...prev, type: 'settle' }))}
+                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 border ${
+                      newPayment.type === 'settle'
+                        ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
+                        : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-transparent'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {language === 'ar' ? 'تسديد دفعة الآن' : 'Settle Installment'}
+                  </button>
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      value={newPayment.amount}
+                      onChange={(e) => setNewPayment(prev => ({ ...prev, amount: e.target.value }))}
+                      placeholder={language === 'ar' ? 'أدخل قيمة الدفعة الحالية...' : 'Amount...'}
+                      className="w-full pl-3 pr-10 py-2.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                      {formData.currency}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleAddPaymentAction}
+                    className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-lg text-xs shadow hover:opacity-90 active:scale-95 transition-all"
+                  >
+                    {language === 'ar' ? 'حفظ الحركة' : 'Apply'}
+                  </button>
+                </div>
+              </div>
+
+              {/* جدول منسق ومستجيب لعرض الدفعات المسجلة للعميل */}
+              <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700">
+                <table className="w-full text-sm text-start">
+                  <thead className="text-xs text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-600 uppercase font-bold">
+                    <tr>
+                      <th scope="col" className="px-4 py-2.5 text-start">{language === 'ar' ? 'التاريخ' : 'Date'}</th>
+                      <th scope="col" className="px-4 py-2.5 text-start">{language === 'ar' ? 'النوع' : 'Type'}</th>
+                      <th scope="col" className="px-4 py-2.5 className text-end">{language === 'ar' ? 'المبلغ' : 'Amount'}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 dark:divide-gray-600 text-gray-900 dark:text-white">
+                    {paymentsList.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="px-4 py-6 text-center text-xs text-gray-400 font-medium">
+                          {language === 'ar' ? 'لا يوجد أي دفعات مسجلة لهذا الدين حتى الآن' : 'No payments registered yet.'}
+                        </td>
+                      </tr>
+                    ) : (
+                      paymentsList.map((p) => (
+                        <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-600/30 transition-colors">
+                          <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{p.date}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${
+                              p.type === 'record'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
+                                : 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400'
+                            }`}>
+                              {p.type === 'record' 
+                                ? (language === 'ar' ? 'إضافة دفعة' : 'Added') 
+                                : (language === 'ar' ? 'تسديد دفعة' : 'Settled')}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-end font-bold text-xs text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                            {p.amount.toFixed(2)} {formData.currency}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* Notes */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg">
