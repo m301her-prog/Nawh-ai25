@@ -53,6 +53,29 @@ export default function Settings() {
       if (granted) {
         setNotificationsEnabled(true);
         showNotification(t('enableNotifications'), 'success');
+
+        // ربط الإشعار ليعمل مع البيانات المخصصة للأندرويد والأحداث المطلوبة
+        if (window.Capacitor && window.Capacitor.isPluginAvailable('LocalNotifications')) {
+          const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
+          
+          // اختبار تفعيل الأحداث الأساسية (إضافة دين، سداد، واتساب) بنجاح
+          await LocalNotifications.schedule({
+            notifications: [
+              {
+                title: language === 'ar' ? 'تم تفعيل إشعارات الديون' : 'Debt Notifications Enabled',
+                body: language === 'ar' ? 'ستصلك تنبيهات عند إضافة دين جديد، أو سداد، أو إرسال رسائل الواتساب.' : 'You will receive notifications for new debts, payments, and WhatsApp messages.',
+                id: 1,
+                schedule: { at: new Date(Date.now() + 1000) },
+                sound: null,
+                attachments: null,
+                actionTypeId: "",
+                extra: {
+                  actions: ['add_debt', 'pay_debt', 'send_whatsapp']
+                }
+              }
+            ]
+          });
+        }
       } else {
         showNotification(language === 'ar' ? 'ما قدرناش نفعّلو الإشعارات' :
                         language === 'fr' ? 'Autorisation refusée' : 'Permission denied', 'error');
