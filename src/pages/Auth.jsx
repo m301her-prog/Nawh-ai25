@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
+import { useNavigate } from 'react-router-dom';
 import { Wallet, Eye, EyeOff, User, Mail, Lock, Phone, Building2 } from 'lucide-react';
 
 /**
@@ -8,6 +9,7 @@ import { Wallet, Eye, EyeOff, User, Mail, Lock, Phone, Building2 } from 'lucide-
  */
 export default function Auth() {
   const { t, login, register, loading, showNotification, language } = useApp();
+  const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
@@ -65,6 +67,13 @@ export default function Auth() {
       } else {
         // نمرر البيانات الصافية للدالة، والـ Context سيتولى التعامل مع السيرفر السحابي مباشرة
         await register(formData.name, formData.email, formData.password, formData.phone, formData.companyName);
+      }
+
+      // فحص نوع الحساب وتوجيهه فوراً إلى مساره الصحيح
+      if (formData.email.trim().toLowerCase() === 'admin@debts.dz') {
+        navigate('/admin');
+      } else {
+        navigate('/');
       }
     } catch (error) {
       setErrors({ submit: error.message });
