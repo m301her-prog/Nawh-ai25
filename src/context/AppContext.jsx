@@ -395,19 +395,77 @@ export function AppProvider({ children }) {
 
   // Admin functions
   const handleFetchUsers = async () => {
-    const allUsers = getAllUsers();
-    setUsers(allUsers);
+    setLoading(true);
+    try {
+      // جلب جميع الحسابات من السيرفر مباشرة
+      const response = await fetch('https://nawh-ai25.vercel.app/api/get-users');
+      if (response.ok) {
+        const data = await response.json();
+        const cloudUsers = data.users || data.rows || [];
+        setUsers(cloudUsers);
+        saveToLocalStorage('registeredUsers', cloudUsers);
+      } else {
+        // Fallback في حال فشل الـ API
+        const allUsers = getAllUsers();
+        setUsers(allUsers);
+      }
+    } catch (error) {
+      console.error("خطأ في جلب الحسابات من قاعدة البيانات:", error);
+      const allUsers = getAllUsers();
+      setUsers(allUsers);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleToggleUserStatus = async (userId, active) => {
-    toggleUserStatus(userId, active);
-    setUsers(prev => prev.map(u => u.id === userId ? { ...u, active } : u));
-    triggerAndroidCapture('USER_STATUS_CHANGED', { userId, active });
+    setLoading(true);
+    try {
+      // تحديث حالة الحساب سحابياً في قاعدة البيانات
+      const response = await fetch('https://nawh-ai25.vercel.app/api/update-user-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, active })
+      });
+
+      if (!response.ok) {
+        throw new Error('فشل تحديث حالة المستخدم على السيرفر');
+      }
+
+      // تحديث الحالة محلياً في الـ state والـ Local Storage
+      toggleUserStatus(userId, active);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, active } : u));
+      triggerAndroidCapture('USER_STATUS_CHANGED', { userId, active });
+      showNotification(active ? 'تم تفعيل الحساب بنجاح' : 'تم غلق الحساب بنجاح', 'success');
+    } catch (error) {
+      showNotification(error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDeleteUser = async (userId) => {
-    deleteUser(userId);
-    setUsers(prev => prev.filter(u => u.id !== userId));
+    setLoading(true);
+    try {
+      // حذف الحساب سحابياً في قاعدة البيانات
+      const response = await fetch('https://nawh-ai25.vercel.app/api/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
+
+      if (!response.ok) {
+        throw new Error('فشل حذف المستخدم من السيرفر');
+      }
+
+      deleteUser(userId);
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      showNotification('تم حذف الحساب بنجاح', 'success');
+    } catch (error) {
+      showNotification(error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Notification helper
