@@ -14,13 +14,12 @@ import {
   Smartphone,
   Trash,
   User,
-  Shield,
-  Info,
   HelpCircle,
   Download,
   FileText,
   FileSpreadsheet
 } from 'lucide-react';
+import { LocalNotifications } from '@capacitor/local-notifications'; // استيراد حزمة الإشعارات المحلية بشكل مباشر
 
 /**
  * Settings Page
@@ -48,33 +47,35 @@ export default function Settings() {
 
   const handleNotificationToggle = async () => {
     if (!notificationsEnabled) {
-      // هنا يتم طلب الإذن الفعلي من نظام أندرويد/المتصفح عبر الـ Context
+      // طلب الإذن الفعلي من نظام أندرويد عبر الـ Context
       const granted = await requestNotificationPermission();
       if (granted) {
         setNotificationsEnabled(true);
         showNotification(t('enableNotifications'), 'success');
 
-        // ربط الإشعار ليعمل مع البيانات المخصصة للأندرويد والأحداث المطلوبة
-        if (window.Capacitor && window.Capacitor.isPluginAvailable('LocalNotifications')) {
-          const LocalNotifications = window.Capacitor.Plugins.LocalNotifications;
-          
-          // اختبار تفعيل الأحداث الأساسية (إضافة دين، سداد، واتساب) بنجاح
-          await LocalNotifications.schedule({
-            notifications: [
-              {
-                title: language === 'ar' ? 'تم تفعيل إشعارات الديون' : 'Debt Notifications Enabled',
-                body: language === 'ar' ? 'ستصلك تنبيهات عند إضافة دين جديد، أو سداد، أو إرسال رسائل الواتساب.' : 'You will receive notifications for new debts, payments, and WhatsApp messages.',
-                id: 1,
-                schedule: { at: new Date(Date.now() + 1000) },
-                sound: null,
-                attachments: null,
-                actionTypeId: "",
-                extra: {
-                  actions: ['add_debt', 'pay_debt', 'send_whatsapp']
+        try {
+          // فحص بيئة العمل وجدولة الإشعار التجريبي المحلي فوراً
+          const hasPermission = await LocalNotifications.checkPermissions();
+          if (hasPermission.display === 'granted') {
+            await LocalNotifications.schedule({
+              notifications: [
+                {
+                  title: language === 'ar' ? 'تم تفعيل إشعارات الديون' : 'Debt Notifications Enabled',
+                  body: language === 'ar' ? 'ستصلك تنبيهات عند إضافة دين جديد، أو سداد، أو إرسال رسائل الواتساب.' : 'You will receive notifications for new debts, payments, and WhatsApp messages.',
+                  id: 1,
+                  schedule: { at: new Date(Date.now() + 1000) },
+                  sound: null,
+                  attachments: null,
+                  actionTypeId: "",
+                  extra: {
+                    actions: ['add_debt', 'pay_debt', 'send_whatsapp']
+                  }
                 }
-              }
-            ]
-          });
+              ]
+            });
+          }
+        } catch (error) {
+          console.error('Error scheduling local notification:', error);
         }
       } else {
         showNotification(language === 'ar' ? 'ما قدرناش نفعّلو الإشعارات' :
@@ -224,7 +225,7 @@ export default function Settings() {
             </h3>
           </div>
 
-          {/* Push Notifications */}
+          {/* Push/Local Notifications */}
           <div className="px-5 py-4 flex items-center gap-4 border-b border-gray-100 dark:border-gray-700">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
               notificationsEnabled ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-gray-100 dark:bg-gray-700'
