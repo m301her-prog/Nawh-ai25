@@ -4,31 +4,28 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.jsx';
 import { AppProvider } from './context/AppContext.jsx';
 import './index.css';
-import { PushNotifications } from '@capacitor/push-notifications';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
-// مكون بسيط لطلب الإذن عند تحميل التطبيق باستخدام Capacitor
+// مكون لطلب إذن الإشعارات المحلية فوراً عند تشغيل التطبيق
 const NotificationInitializer = () => {
   useEffect(() => {
-    const requestCapacitorNotifications = async () => {
+    const requestAndroidPermissions = async () => {
       try {
-        let permStatus = await PushNotifications.checkPermissions();
+        // فحص حالة الإذن الحالية
+        let permStatus = await LocalNotifications.checkPermissions();
         
-        if (permStatus.receive === 'prompt') {
-          permStatus = await PushNotifications.requestPermissions();
+        // إذا لم يتم طلب الإذن من قبل أو يحتاج إلى إذن، اطلبه فوراً
+        if (permStatus.display === 'prompt' || permStatus.display === 'denied') {
+          permStatus = await LocalNotifications.requestPermissions();
         }
 
-        console.log('Capacitor Notification permission status:', permStatus.receive);
-        
-        if (permStatus.receive === 'granted') {
-          // تسجيل التطبيق لاستقبال الإشعارات من Firebase/APNS
-          await PushNotifications.register();
-        }
+        console.log('Android Notification Permission Status:', permStatus.display);
       } catch (error) {
-        console.error('Error initializing Capacitor Push Notifications:', error);
+        console.error('Error requesting Android notification permissions:', error);
       }
     };
 
-    requestCapacitorNotifications();
+    requestAndroidPermissions();
   }, []);
   
   return null;
