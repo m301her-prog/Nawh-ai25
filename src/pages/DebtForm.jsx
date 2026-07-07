@@ -37,6 +37,7 @@ export default function DebtForm() {
   const existingDebt = isEditing ? debts.find(d => d.id === id) : null;
 
   const [formData, setFormData] = useState({
+    type: 'disabled_to_me',
     type: 'owed_to_me',
     personName: '',
     phone: '',
@@ -60,6 +61,17 @@ export default function DebtForm() {
   const [showPaymentsSection, setShowPaymentsSection] = useState(false);
   const [paymentsList, setPaymentsList] = useState([]);
   const [newPayment, setNewPayment] = useState({ amount: '', type: 'record' }); // type: 'record' (إضافة دفعة) أو 'settle' (تسديد دفعة)
+
+  // دالة مساعدة لإرسال إشعارات أندرويد المحلية عبر الـ Bridge
+  const sendAndroidNotification = (title, message) => {
+    if (window.Android && window.Android.showNotification) {
+      window.Android.showNotification(title, message);
+    } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.AndroidBridge) {
+      window.webkit.messageHandlers.AndroidBridge.postMessage({ action: 'showNotification', title, message });
+    } else {
+      console.log(`[Android Notification] Title: ${title} | Message: ${message}`);
+    }
+  };
 
   // Load existing debt data for editing
   useEffect(() => {
@@ -128,23 +140,29 @@ export default function DebtForm() {
       date: new Date().toISOString().split('T')[0]
     };
 
+    const updatedPayments = [paymentItem, ...prev => prev];
     setPaymentsList(prev => [paymentItem, ...prev]);
     
-    // إطلاق الإشعار المحلي التفاعلي حسب نوع العملية
+    // حساب المتبقي الإجمالي للدين ومواعيد السداد للإشعار المحلي
+    const totalAmount = parseFloat(formData.amount) || 0;
+    const paidAmount = [paymentItem, ...paymentsList]
+      .filter(p => p.type === 'settle')
+      .reduce((sum, p) => sum + p.amount, 0);
+    const remainingAmount = Math.max(0, totalAmount - paidAmount);
+
+    // إطلاق الإشعار المحلي التفاعلي حسب نوع العملية وبناء تفاصيل السداد والمواعيد القادمة
     if (newPayment.type === 'record') {
-      showNotification(
-        language === 'ar' 
-          ? `تم تسجيل إضافة دفعة بمبلغ ${amt} ${formData.currency} بنجاح` 
-          : `Payment installment of ${amt} ${formData.currency} added successfully`, 
-        'success'
-      );
+      const msgAr = `تم تسجيل إضافة دفعة بمبلغ ${amt} ${formData.currency}. المتبقي الإجمالي: ${remainingAmount} ${formData.currency}. تاريخ الاستحقاق القادم: ${formData.dueDate}`;
+      const msgEn = `Payment installment of ${amt} ${formData.currency} added. Total remaining: ${remainingAmount} ${formData.currency}. Next due: ${formData.dueDate}`;
+      
+      showNotification(language === 'ar' ? `تم تسجيل إضافة دفعة بمبلغ ${amt} ${formData.currency} بنجاح` : `Payment installment of ${amt} ${formData.currency} added successfully`, 'success');
+      sendAndroidNotification(language === 'ar' ? 'تحديث مواعيد الدفعات' : 'Installments Schedule Update', language === 'ar' ? msgAr : msgEn);
     } else {
-      showNotification(
-        language === 'ar' 
-          ? `تم تسديد دفعة بمبلغ ${amt} ${formData.currency} بنجاح` 
-          : `Settle payment of ${amt} ${formData.currency} recorded successfully`, 
-        'success'
-      );
+      const msgAr = `تم تسديد دفعة بمبلغ ${amt} ${formData.currency}. المتبقي للسداد: ${remainingAmount} ${formData.currency}. يرجى الالتزام بموعد السداد النهائي في ${formData.dueDate}`;
+      const msgEn = `Settle payment of ${amt} ${formData.currency} recorded. Remaining: ${remainingAmount} ${formData.currency}. Final due date: ${formData.dueDate}`;
+      
+      showNotification(language === 'ar' ? `تم تسديد دفعة بمبلغ ${amt} ${formData.currency} بنجاح` : `Settle payment of ${amt} ${formData.currency} recorded successfully`, 'success');
+      sendAndroidNotification(language === 'ar' ? 'إشعار سداد دفعة ومواعيد الاستحقاق' : 'Payment Settlement & Due Dates', language === 'ar' ? msgAr : msgEn);
     }
 
     setNewPayment(prev => ({ ...prev, amount: '' }));
@@ -185,6 +203,17 @@ export default function DebtForm() {
         await updateDebt(id, debtData);
       } else {
         await addDebt(debtData);
+        // إطلاق إشعار محلي أندرويد عند إضافة دين جديد بنجاح
+        const debtTypeString = formData.type === 'owed_to_me' 
+          ? (language === 'ar' ? 'مستحق لك من' : 'owed to you by') 
+          : (language === 'ar' ? 'متوجب عليك لصالح' : 'you owe to');
+        
+        const notifTitle = language === 'ar' ? 'تم إضافة دين جديد بنجاح' : 'New Debt Registered';
+        const notifMessage = language === 'ar' 
+          ? `تم تسجيل دين جديد بمبلغ ${formData.amount} ${formData.currency} ${debtTypeString} ${formData.personName}. تاريخ الاستحقاق: ${formData.dueDate}`
+          : `New debt of ${formData.amount} ${formData.currency} ${debtTypeString} ${formData.personName} has been created. Due date: ${formData.dueDate}`;
+        
+        sendAndroidNotification(notifTitle, notifMessage);
       }
 
       navigate(-1);
@@ -385,8 +414,8 @@ export default function DebtForm() {
             className={`w-full px-4 py-3.5 rounded-xl border-2 ${
               errors.dueDate
                 ? 'border-red-500 bg-red-50 dark:bg-red-900/20'
-                : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700'
-            } text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition`}
+                : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition'
+            }`}
           />
           {errors.dueDate && (
             <p className="mt-2 text-sm text-red-500 font-medium">{errors.dueDate}</p>
@@ -412,123 +441,219 @@ export default function DebtForm() {
           </div>
         )}
 
-        {/* قسم إدارة وتسجيل ارقام الدفعات والتسديد الذكي للجدول */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden border border-emerald-100 dark:border-gray-700">
+        {/* الكارت المدمج الجديد: يجمع بين الجدولة وإدارة حركات الدفعات معاً بصورة مترابطة */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden border border-gray-100 dark:border-gray-700">
+          {/* رأس الكارت الرئيسي للتحكم بالجدولة والتقسيط */}
           <button
             type="button"
-            onClick={() => setShowPaymentsSection(!showPaymentsSection)}
-            className="w-full px-5 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+            onClick={() => setShowScheduleCard(!showScheduleCard)}
+            className="w-full px-5 py-4 flex items-center gap-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition border-b border-gray-100 dark:border-gray-700"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                <DollarSign className="w-5 h-5" />
-              </div>
-              <div className="text-start">
-                <p className="font-bold text-gray-900 dark:text-white text-sm">
-                  {language === 'ar' ? 'إدارة وحركة دفعات الدين المعجل' : 'Debt Installments Management'}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {language === 'ar' ? `المسجلة حالياً: (${paymentsList.length}) دفعة` : `Total registered: (${paymentsList.length})`}
-                </p>
-              </div>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+              showScheduleCard ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-gray-100 dark:bg-gray-700'
+            }`}>
+              <Repeat className={`w-6 h-6 ${showScheduleCard ? 'text-blue-500' : 'text-gray-400'}`} />
             </div>
-            {showPaymentsSection ? <ChevronUp className="w-5 h-5 text-gray-400" /> : <ChevronDown className="w-5 h-5 text-gray-400" />}
+            <div className="flex-1 text-start">
+              <p className="font-bold text-gray-900 dark:text-white">
+                {language === 'ar' ? 'جدولة الدين والتقسيط المتقدم' : language === 'fr' ? 'Planification et versements' : 'Debt Scheduling & Installments'}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {showScheduleCard
+                  ? (language === 'ar' ? 'مفعّل - اضغط للتعطيل' : language === 'fr' ? 'Activé' : 'Enabled')
+                  : (language === 'ar' ? 'اختياري - اضغط للتفعيل' : language === 'fr' ? 'Optionnel' : 'Optional - Tap to enable')}
+              </p>
+            </div>
+            <div className={`w-14 h-8 rounded-full transition-colors ${
+              showScheduleCard ? 'bg-blue-500' : 'bg-gray-300'
+            } relative flex-shrink-0`}>
+              <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-transform ${
+                showScheduleCard ? 'translate-x-7' : 'translate-x-1'
+              }`} />
+            </div>
           </button>
 
-          {showPaymentsSection && (
-            <div className="p-5 border-t border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50 space-y-4 animate-in fade-in duration-200">
-              {/* أدوات الإدخال والتسديد البيني المنسق */}
-              <div className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-600 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewPayment(prev => ({ ...prev, type: 'record' }))}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 border ${
-                      newPayment.type === 'record'
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-                        : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-transparent'
-                    }`}
-                  >
-                    <PlusCircle className="w-3.5 h-3.5" />
-                    {language === 'ar' ? 'إضافة دفعة سابقة' : 'Add Installment'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewPayment(prev => ({ ...prev, type: 'settle' }))}
-                    className={`py-2 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 border ${
-                      newPayment.type === 'settle'
-                        ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-                        : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-transparent'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    {language === 'ar' ? 'تسديد دفعة الآن' : 'Settle Installment'}
-                  </button>
-                </div>
-
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="number"
-                      value={newPayment.amount}
-                      onChange={(e) => setNewPayment(prev => ({ ...prev, amount: e.target.value }))}
-                      placeholder={language === 'ar' ? 'أدخل قيمة الدفعة الحالية...' : 'Amount...'}
-                      className="w-full pl-3 pr-10 py-2.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-lg border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
-                      {formData.currency}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleAddPaymentAction}
-                    className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-lg text-xs shadow hover:opacity-90 active:scale-95 transition-all"
-                  >
-                    {language === 'ar' ? 'حفظ الحركة' : 'Apply'}
-                  </button>
+          {/* محتوى كارت الجدولة والحركات المرتبطة */}
+          {showScheduleCard && (
+            <div className="p-5 space-y-5 bg-slate-50/30 dark:bg-slate-900/10 animate-in slide-in-from-top-2 duration-200">
+              {/* اختيار نوع التكرار */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  {language === 'ar' ? 'نوع الجدولة / التكرار' : language === 'fr' ? 'Type de planification' : 'Schedule Type'}
+                  <span className="text-red-500">*</span>
+                </label>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { value: 'daily', labelAr: 'يومي', labelFr: 'Quotidien', labelEn: 'Daily' },
+                    { value: 'weekly', labelAr: 'أسبوعي', labelFr: 'Hebdo', labelEn: 'Weekly' },
+                    { value: 'monthly', labelAr: 'شهري', labelFr: 'Mensuel', labelEn: 'Monthly' },
+                    { value: 'specific', labelAr: 'تاريخ محدد', labelFr: 'Date fixe', labelEn: 'Specific' }
+                  ].map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => handleChange('scheduleType', option.value)}
+                      className={`py-3 px-2 rounded-xl border-2 transition-all text-center text-xs font-bold ${
+                        formData.scheduleType === option.value
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+                          : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-blue-300'
+                      }`}
+                    >
+                      {language === 'ar' ? option.labelAr : language === 'fr' ? option.labelFr : option.labelEn}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* جدول منسق ومستجيب لعرض الدفعات المسجلة للعميل */}
-              <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-700">
-                <table className="w-full text-sm text-start">
-                  <thead className="text-xs text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-600 uppercase font-bold">
-                    <tr>
-                      <th scope="col" className="px-4 py-2.5 text-start">{language === 'ar' ? 'التاريخ' : 'Date'}</th>
-                      <th scope="col" className="px-4 py-2.5 text-start">{language === 'ar' ? 'النوع' : 'Type'}</th>
-                      <th scope="col" className="px-4 py-2.5 className text-end">{language === 'ar' ? 'المبلغ' : 'Amount'}</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 dark:divide-gray-600 text-gray-900 dark:text-white">
-                    {paymentsList.length === 0 ? (
-                      <tr>
-                        <td colSpan={3} className="px-4 py-6 text-center text-xs text-gray-400 font-medium">
-                          {language === 'ar' ? 'لا يوجد أي دفعات مسجلة لهذا الدين حتى الآن' : 'No payments registered yet.'}
-                        </td>
-                      </tr>
-                    ) : (
-                      paymentsList.map((p) => (
-                        <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-600/30 transition-colors">
-                          <td className="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{p.date}</td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-bold ${
-                              p.type === 'record'
-                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
-                                : 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400'
-                            }`}>
-                              {p.type === 'record' 
-                                ? (language === 'ar' ? 'إضافة دفعة' : 'Added') 
-                                : (language === 'ar' ? 'تسديد دفعة' : 'Settled')}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-end font-bold text-xs text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                            {p.amount.toFixed(2)} {formData.currency}
-                          </td>
+              {/* عدد الدفعات وتاريخ أول دفعة */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">
+                    {language === 'ar' ? 'عدد الدفعات' : language === 'fr' ? 'Nombre de versements' : 'Number of Installments'}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.installmentsCount}
+                    onChange={(e) => handleChange('installmentsCount', e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder-gray-400 text-sm"
+                    placeholder={language === 'ar' ? 'مثال: 12' : 'e.g., 12'}
+                    min="1"
+                    max="99"
+                  />
+                  {formData.amount && formData.installmentsCount && (
+                    <p className="mt-1.5 text-xs text-blue-600 dark:text-blue-400 font-bold">
+                      {language === 'ar'
+                        ? `قيمة القسط الإفتراضي: ${(parseFloat(formData.amount) / (parseInt(formData.installmentsCount) || 1)).toFixed(2)} ${formData.currency}`
+                        : `Installment: ${(parseFloat(formData.amount) / (parseInt(formData.installmentsCount) || 1)).toFixed(2)} ${formData.currency}`}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                    <Calendar className="w-4 h-4" />
+                    {language === 'ar' ? 'تاريخ الدفعة الأولى' : 'First Payment Date'}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={formData.firstPaymentDate}
+                    onChange={(e) => handleChange('firstPaymentDate', e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-sm"
+                  />
+                </div>
+              </div>
+
+              {/* قسم إدارة وحركات دفعات الدين المعجل المرتبط هيكلياً */}
+              <div className="pt-4 border-t border-dashed border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-start">
+                    <p className="font-bold text-gray-900 dark:text-white text-xs flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      {language === 'ar' ? 'إدارة وحركة دفعات الدين المعجل' : 'Debt Installments Management'}
+                    </p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      {language === 'ar' ? `المسجلة حالياً: (${paymentsList.length}) دفعة` : `Total registered: (${paymentsList.length})`}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {/* أزرار اختيار نوع الدفعة (إضافة / تسديد) */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewPayment(prev => ({ ...prev, type: 'record' }))}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border ${
+                        newPayment.type === 'record'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 shadow-sm'
+                          : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-transparent'
+                      }`}
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      {language === 'ar' ? 'إضافة دفعة سابقة' : 'Add Installment'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewPayment(prev => ({ ...prev, type: 'settle' }))}
+                      className={`py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 border ${
+                        newPayment.type === 'settle'
+                          ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800 shadow-sm'
+                          : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-transparent'
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {language === 'ar' ? 'تسديد دفعة الآن' : 'Settle Installment'}
+                    </button>
+                  </div>
+
+                  {/* حقل الإدخال وزر الحفظ */}
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input
+                        type="number"
+                        value={newPayment.amount}
+                        onChange={(e) => setNewPayment(prev => ({ ...prev, amount: e.target.value }))}
+                        placeholder={language === 'ar' ? 'أدخل قيمة الدفعة...' : 'Amount...'}
+                        className="w-full pl-3 pr-12 py-2.5 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white rounded-xl border border-gray-200 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">
+                        {formData.currency}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddPaymentAction}
+                      className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl text-xs shadow hover:opacity-90 active:scale-95 transition-all flex items-center justify-center"
+                    >
+                      {language === 'ar' ? 'حفظ الحركة' : 'Apply'}
+                    </button>
+                  </div>
+
+                  {/* جدول عرض الحركات المسجلة والمربوطة بالجدولة */}
+                  <div className="overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-700">
+                    <table className="w-full text-xs text-start">
+                      <thead className="text-[10px] text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-600 uppercase font-bold">
+                        <tr>
+                          <th scope="col" className="px-3 py-2 text-start">{language === 'ar' ? 'التاريخ' : 'Date'}</th>
+                          <th scope="col" className="px-3 py-2 text-start">{language === 'ar' ? 'النوع' : 'Type'}</th>
+                          <th scope="col" className="px-3 py-2 text-end">{language === 'ar' ? 'المبلغ' : 'Amount'}</th>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-600 text-gray-900 dark:text-white">
+                        {paymentsList.length === 0 ? (
+                          <tr>
+                            <td colSpan={3} className="px-3 py-4 text-center text-[11px] text-gray-400 font-medium">
+                              {language === 'ar' ? 'لا يوجد أي دفعات مسجلة لهذا الدين حتى الآن' : 'No payments registered yet.'}
+                            </td>
+                          </tr>
+                        ) : (
+                          paymentsList.map((p) => (
+                            <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-600/30 transition-colors">
+                              <td className="px-3 py-2 text-[11px] text-gray-400 whitespace-nowrap">{p.date}</td>
+                              <td className="px-3 py-2 whitespace-nowrap">
+                                <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                  p.type === 'record'
+                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
+                                    : 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400'
+                                }`}>
+                                  {p.type === 'record' 
+                                    ? (language === 'ar' ? 'إضافة دفعة' : 'Added') 
+                                    : (language === 'ar' ? 'تسديد دفعة' : 'Settled')}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-end font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                {p.amount.toFixed(2)} {formData.currency}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -550,185 +675,56 @@ export default function DebtForm() {
           />
         </div>
 
-        {/* Scheduling/Installment Card */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
-          {/* Toggle Switch Header */}
-          <button
-            type="button"
-            onClick={() => setShowScheduleCard(!showScheduleCard)}
-            className="w-full px-5 py-4 flex items-center gap-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition border-b border-gray-100 dark:border-gray-700"
-          >
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-              showScheduleCard ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-gray-100 dark:bg-gray-700'
-            }`}>
-              <Repeat className={`w-6 h-6 ${showScheduleCard ? 'text-blue-500' : 'text-gray-400'}`} />
-            </div>
-            <div className="flex-1 text-start">
-              <p className="font-bold text-gray-900 dark:text-white">
-                {language === 'ar' ? 'جدولة الدين والتقسيط' : language === 'fr' ? 'Planification et versements' : 'Debt Scheduling & Installments'}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {showScheduleCard
-                  ? (language === 'ar' ? 'مفعّل - اضغط للتعطيل' : language === 'fr' ? 'Activé' : 'Enabled')
-                  : (language === 'ar' ? 'اختياري - اضغط للتفعيل' : language === 'fr' ? 'Optionnel - Appuyez pour activer' : 'Optional - Tap to enable')}
-              </p>
-            </div>
-            <div className={`w-14 h-8 rounded-full transition-colors ${
-              showScheduleCard ? 'bg-blue-500' : 'bg-gray-300'
-            } relative flex-shrink-0`}>
-              <div className={`absolute top-1 w-6 h-6 bg-white rounded-full shadow transition-transform ${
-                showScheduleCard ? 'translate-x-7' : 'translate-x-1'
-              }`} />
-            </div>
-          </button>
-
-          {/* Schedule Fields (shown when toggle is on) */}
-          {showScheduleCard && (
-            <div className="p-5 space-y-4 animate-in slide-in-from-top-2 duration-200">
-              {/* Schedule Type */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                  <Clock className="w-4 h-4" />
-                  {language === 'ar' ? 'نوع الجدولة / التكرار' : language === 'fr' ? 'Type de planification' : 'Schedule Type'}
-                  <span className="text-red-500">*</span>
-                </label>
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    { value: 'daily', labelAr: 'يومي', labelFr: 'Quotidien', labelEn: 'Daily' },
-                    { value: 'weekly', labelAr: 'أسبوعي', labelFr: 'Hebdo', labelEn: 'Weekly' },
-                    { value: 'monthly', labelAr: 'شهري', labelFr: 'Mensuel', labelEn: 'Monthly' },
-                    { value: 'specific', labelAr: 'تاريخ محدد', labelFr: 'Date fixe', labelEn: 'Specific' }
-                  ].map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleChange('scheduleType', option.value)}
-                      className={`py-3 px-2 rounded-xl border-2 transition-all text-center text-sm font-medium ${
-                        formData.scheduleType === option.value
-                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-                          : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-blue-300'
-                      }`}
-                    >
-                      {language === 'ar' ? option.labelAr : language === 'fr' ? option.labelFr : option.labelEn}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Installments Count */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3">
-                  {language === 'ar' ? 'عدد الدفعات' : language === 'fr' ? 'Nombre de versements' : 'Number of Installments'}
-                  <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  value={formData.installmentsCount}
-                  onChange={(e) => handleChange('installmentsCount', e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition placeholder-gray-400"
-                  placeholder={language === 'ar' ? 'مثال: 12' : language === 'fr' ? 'Ex: 12' : 'e.g., 12'}
-                  min="1"
-                  max="99"
-                />
-                {formData.amount && formData.installmentsCount && (
-                  <p className="mt-2 text-sm text-blue-600 dark:text-blue-400 font-medium">
-                    {language === 'ar'
-                      ? `قيمة القسط: ${(parseFloat(formData.amount) / (parseInt(formData.installmentsCount) || 1)).toFixed(2)} ${formData.currency}`
-                      : language === 'fr'
-                      ? `Montant par versement: ${(parseFloat(formData.amount) / (parseInt(formData.installmentsCount) || 1)).toFixed(2)} ${formData.currency}`
-                      : `Installment amount: ${(parseFloat(formData.amount) / (parseInt(formData.installmentsCount) || 1)).toFixed(2)} ${formData.currency}`}
-                  </p>
-                )}
-              </div>
-
-              {/* First Payment Date */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-                  <Calendar className="w-4 h-4" />
-                  {language === 'ar' ? 'تاريخ الدفعة الأولى' : language === 'fr' ? 'Date du premier versement' : 'First Payment Date'}
-                  <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="date"
-                  value={formData.firstPaymentDate}
-                  onChange={(e) => handleChange('firstPaymentDate', e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                />
-              </div>
-
-              {/* Info Note */}
-              <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl">
-                <Info className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-blue-700 dark:text-blue-300">
-                  {language === 'ar'
-                    ? 'سيتم إنشاء جدول دفعات تلقائي بناءً على الإعدادات أعلاه، ويمكنك تتبع الدفعات المدفوعة والمتبقية من تفاصيل الدين.'
-                    : language === 'fr'
-                    ? 'Un calendrier de paiement sera automatiquement créé. Vous pourrez suivre les versements payés et restants.'
-                    : 'A payment schedule will be automatically created. You can track paid and remaining installments from debt details.'}
-                </p>
-              </div>
-            </div>
+        {/* Form Actions */}
+        <div className="flex gap-3 pt-2">
+          {isEditing && (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-3.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/30 dark:hover:bg-red-950/50 transition flex items-center justify-center"
+              disabled={loading}
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
           )}
+          <button
+            type="submit"
+            className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold py-3.5 rounded-xl shadow-lg hover:opacity-95 active:scale-[0.99] transition disabled:opacity-50 flex items-center justify-center gap-2"
+            disabled={loading}
+          >
+            <Save className="w-5 h-5" />
+            {isEditing ? t('saveChanges') : t('saveDebt')}
+          </button>
         </div>
-
-        {/* Submit Button */}
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold text-lg shadow-lg hover:shadow-xl focus:ring-4 focus:ring-emerald-300 dark:focus:ring-emerald-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-3"
-        >
-          {loading ? (
-            <>
-              <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
-              {t('savingData')}
-            </>
-          ) : (
-            <>
-              <Save className="w-6 h-6" />
-              {t('save')}
-            </>
-          )}
-        </button>
-
-        {/* Delete Button - Only for editing */}
-        {isEditing && (
-          <button
-            type="button"
-            onClick={() => setShowDeleteConfirm(true)}
-            className="w-full py-4 rounded-2xl border-2 border-red-500 text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-900/20 transition flex items-center justify-center gap-3"
-          >
-            <Trash2 className="w-5 h-5" />
-            {t('delete')}
-          </button>
-        )}
       </form>
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-14 h-14 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                <AlertCircle className="w-7 h-7 text-red-500" />
-              </div>
-              <div>
-                <h3 className="font-bold text-lg text-gray-900 dark:text-white">{t('delete')}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{t('confirmDelete')}</p>
-              </div>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-xl bg-red-100 dark:bg-red-950/30 flex items-center justify-center text-red-600 mx-auto">
+              <AlertCircle className="w-6 h-6" />
             </div>
-
+            <div className="text-center">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                {language === 'ar' ? 'حذف الدين؟' : 'Delete Debt?'}
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {language === 'ar' ? 'هل أنت متأكد من حذف هذا الدين نهائياً؟ لا يمكن التراجع.' : 'Are you sure you want to delete this debt permanently?'}
+              </p>
+            </div>
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-3.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-xl text-sm transition"
               >
                 {t('cancel')}
               </button>
               <button
                 type="button"
                 onClick={handleDelete}
-                className="flex-1 py-3.5 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition"
+                className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl text-sm shadow-lg shadow-red-600/20 hover:bg-red-700 transition"
               >
                 {t('delete')}
               </button>
