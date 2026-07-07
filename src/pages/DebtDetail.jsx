@@ -16,11 +16,12 @@ import {
   Share2,
   Copy
 } from 'lucide-react';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
 /**
  * Debt Detail Page
  * Shows full debt information with actions: edit, mark paid, WhatsApp
- * Integrates with neonService for all operations
+ * Integrates with @capacitor/local-notifications for user feedback actions
  */
 export default function DebtDetail() {
   const { t, debts, updateDebt, language, openWhatsApp, showNotification } = useApp();
@@ -28,6 +29,34 @@ export default function DebtDetail() {
   const { id } = useParams();
 
   const debt = debts.find(d => d.id === id);
+
+  // دالة مساعدة لإرسال إشعارات محلية فورية عبر مكتبة Capacitor
+  const sendLocalNotification = async (title, message) => {
+    try {
+      // التحقق من الإذن وطلبه إذا لم يكن ممنوحاً
+      const permStatus = await LocalNotifications.checkPermissions();
+      if (permStatus.display !== 'granted') {
+        await LocalNotifications.requestPermissions();
+      }
+
+      // إطلاق الإشعار المحلي فوراً
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            title: title,
+            body: message,
+            id: Math.floor(Math.random() * 100000),
+            schedule: { at: new Date(Date.now() + 500) }, // إطلاق فوري بعد نصف ثانية
+            sound: 'default',
+            actionTypeId: '',
+            extra: null
+          }
+        ]
+      });
+    } catch (error) {
+      console.error('Error sending local notification via Capacitor:', error);
+    }
+  };
 
   if (!debt) {
     return (
@@ -74,17 +103,33 @@ export default function DebtDetail() {
   const isOverdue = dueDate < today && debt.status !== 'paid';
   const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
 
-  // WhatsApp reminder
+  // WhatsApp reminder with LocalNotification trigger
   const handleWhatsApp = () => {
     const message = `${t('whatsappGreeting')}\n\n${t('whatsappBody')}\n${t('personName')}: ${debt.personName}\n${t('amount')}: ${formatCurrency(debt.amount, debt.currency)}\n${t('dueDate')}: ${formatDate(debt.dueDate)}${debt.notes ? '\n\n' + t('notes') + ': ' + debt.notes : ''}\n\n${t('whatsappClosing')}`;
     openWhatsApp(debt.phone || '', message);
+    
+    // إرسال إشعار محلي يفيد بفتح مشاركة الواتساب بنجاح
+    const notifTitle = language === 'ar' ? 'تذكير الواتساب' : 'WhatsApp Reminder';
+    const notifBody = language === 'ar' 
+      ? `تم فتح محادثة لتذكير ${debt.personName} بمبلغ ${formatCurrency(debt.amount, debt.currency)}.`
+      : `Opened WhatsApp chat to remind ${debt.personName} of ${formatCurrency(debt.amount, debt.currency)}.`;
+    
+    sendLocalNotification(notifTitle, notifBody);
   };
 
-  // Mark as paid
+  // Mark as paid with LocalNotification trigger
   const markAsPaid = async () => {
     try {
       await updateDebt(debt.id, { status: 'paid' });
       showNotification(t('debtUpdated'), 'success');
+      
+      // إرسال إشعار محلي فوري يفيد بتحديث حالة الدين كمسدد بنجاح
+      const notifTitle = language === 'ar' ? 'تحديث حالة الدين' : 'Debt Status Updated';
+      const notifBody = language === 'ar'
+        ? `تم تسوية الدين وتعيينه كمسدد بنجاح لصالح ${debt.personName}.`
+        : `The debt for ${debt.personName} has been successfully marked as paid.`;
+        
+      sendLocalNotification(notifTitle, notifBody);
     } catch (error) {
       showNotification(error.message, 'error');
     }
