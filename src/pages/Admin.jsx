@@ -10,16 +10,13 @@ import {
   UserCheck,
   UserX,
   Trash2,
-  TrendingUp,
-  Activity,
-  DollarSign,
-  AlertCircle
+  Briefcase,
+  DollarSign
 } from 'lucide-react';
 
 /**
  * Admin Dashboard Page
- * For admin users only - manage all registered users
- * Uses neonService for user management operations
+ * For admin users only - manage all registered users with company support
  */
 export default function Admin() {
   const {
@@ -30,7 +27,6 @@ export default function Admin() {
     fetchUsers,
     toggleUserStatus,
     deleteUser,
-    statistics,
     loading,
     showNotification,
     language
@@ -49,9 +45,11 @@ export default function Admin() {
     return null;
   }
 
+  // فحص دقيق وشامل لحساب الحسابات النشطة
   const activeUsers = users.filter(u => u.active === true || u.active === 'true' || u.active === 1).length;
 
   const formatDate = (dateString) => {
+    if (!dateString) return '';
     const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Date(dateString).toLocaleDateString(locale, {
       year: 'numeric',
@@ -60,13 +58,15 @@ export default function Admin() {
     });
   };
 
+  // إرسال التحديث الصريح والآمن للباك إند
   const handleToggleStatus = async (userId, currentStatus) => {
     try {
-      // تحويل الحالة الحالية للتأكد من إرسال القيمة المعاكسة كـ Boolean صريح تماماً للمحرك
+      // تحويل القيمة القادمة لـ Boolean معاكس وصريح لارسالها للمحرك والباك إند
       const isCurrentlyActive = currentStatus === true || currentStatus === 'true' || currentStatus === 1;
-      const nextStatus = !isCurrentlyActive; // إذا كان مفعل سيصبح false، وإذا كان معطل سيصبح true
+      const nextStatus = !isCurrentlyActive; // عكس الحالة تماماً
 
       await toggleUserStatus(userId, nextStatus);
+      
       showNotification(
         nextStatus
           ? (language === 'ar' ? 'تم تفعيل الحساب بنجاح' : language === 'fr' ? 'Utilisateur activé' : 'User activated')
@@ -89,7 +89,7 @@ export default function Admin() {
       try {
         await deleteUser(userId);
         showNotification(
-          language === 'ar' ? 'تم حذف المستخدم'
+          language === 'ar' ? 'تم حذف المستخدم بنجاح'
           : language === 'fr' ? 'Utilisateur supprimé'
           : 'User deleted',
           'success'
@@ -110,7 +110,7 @@ export default function Admin() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-8" dir={language === 'ar' ? 'rtl' : 'ltr'}>
       {/* Header */}
       <header className="bg-gradient-to-r from-purple-600 to-indigo-700 text-white p-4 sticky top-0 z-10 shadow-lg">
         <div className="flex items-center gap-3 mb-4">
@@ -118,7 +118,7 @@ export default function Admin() {
             onClick={() => navigate('/')}
             className="p-2 rounded-xl hover:bg-white/20 transition"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 transform flip-h" />
           </button>
           <div className="flex-1">
             <h1 className="text-xl font-bold">{t('admin')}</h1>
@@ -169,16 +169,15 @@ export default function Admin() {
             </h2>
             <button
               onClick={() => fetchUsers()}
-              className="text-sm text-purple-500 hover:underline"
+              className="text-sm text-purple-500 hover:underline font-bold"
             >
-              {language === 'ar' ? 'حدث' : language === 'fr' ? 'Actualiser' : 'Refresh'}
+              {language === 'ar' ? 'تحديث البيانات 🔄' : language === 'fr' ? 'Actualiser' : 'Refresh'}
             </button>
           </div>
 
           {users.length > 0 ? (
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {users.map(u => {
-                // فحص دقيق لحالة الحساب لضمان تماسك العرض والتحكم
                 const isUserActive = u.active === true || u.active === 'true' || u.active === 1;
 
                 return (
@@ -186,108 +185,52 @@ export default function Admin() {
                     key={u.id}
                     className="p-5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
                   >
-                    <div className="flex items-center gap-4">
-                      {/* Avatar */}
-                      <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-white text-lg ${
-                        isUserActive
-                          ? 'bg-gradient-to-br from-purple-400 to-indigo-500'
-                          : 'bg-gray-400'
-                      }`}>
-                        {(u.name?.[0] || u.email?.[0] || 'U').toUpperCase()}
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-gray-900 dark:text-white truncate">
-                            {u.name || 'User'}
-                          </p>
-                          {isUserActive ? (
-                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                          ) : (
-                            <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                          )}
-                          {u.isAdmin && (
-                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
-                              Admin
-                            </span>
-                          )}
-                          {!isUserActive && (
-                            <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 dark:bg-red-900/20 text-red-600 dark:text-red-400">
-                              {language === 'ar' ? 'معطل' : language === 'fr' ? 'Inactif' : 'Inactive'}
-                            </span>
-                          )}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      
+                      {/* Left: User & Company Identity */}
+                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                        {/* Avatar */}
+                        <div className={`w-14 h-14 rounded-full flex items-center justify-center font-bold text-white text-lg flex-shrink-0 ${
+                          isUserActive
+                            ? 'bg-gradient-to-br from-purple-400 to-indigo-500'
+                            : 'bg-gray-400'
+                        }`}>
+                          {(u.company_name?.[0] || u.name?.[0] || 'C').toUpperCase()}
                         </div>
 
-                        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mt-1">
-                          <Mail className="w-3.5 h-3.5" />
-                          <span className="truncate">{u.email}</span>
-                        </div>
-
-                        {u.createdAt && (
-                          <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-1">
-                            <Calendar className="w-3 h-3" />
-                            {formatDate(u.createdAt)}
+                        {/* Details */}
+                        <div className="flex-1 min-w-0">
+                          {/* اسم الشركة بشكل بارز جداً وبخط عريض */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-base font-extrabold text-indigo-600 dark:text-indigo-400 truncate flex items-center gap-1">
+                              <Briefcase className="w-4 h-4 text-gray-400" />
+                              {u.company_name || (language === 'ar' ? 'شركة غير مسماة' : 'No Company')}
+                            </h3>
+                            
+                            {isUserActive ? (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                {language === 'ar' ? 'نشط' : 'Active'}
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                                {language === 'ar' ? 'معطل' : 'Disabled'}
+                              </span>
+                            )}
+                            
+                            {u.is_admin && (
+                              <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400">
+                                Admin
+                              </span>
+                            )}
                           </div>
-                        )}
-                      </div>
 
-                      {/* Actions Buttons - الأزرار الواضحة والنصية الجديدة */}
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleToggleStatus(u.id, u.active)}
-                          disabled={loading || u.isAdmin || u.email === 'admin@debts.dz'}
-                          className={`flex items-center gap-1 px-3 py-2 text-xs font-bold rounded-xl shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                            isUserActive
-                              ? 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50'
-                              : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50'
-                          }`}
-                        >
-                          {isUserActive ? (
-                            <>
-                              <UserX className="w-4 h-4" />
-                              <span>{language === 'ar' ? 'تعطيل الحساب' : language === 'fr' ? 'Désactiver' : 'Deactivate'}</span>
-                            </>
-                          ) : (
-                            <>
-                              <UserCheck className="w-4 h-4" />
-                              <span>{language === 'ar' ? 'تفعيل الحساب' : language === 'fr' ? 'Activer' : 'Activate'}</span>
-                            </>
-                          )}
-                        </button>
+                          {/* اسم صاحب الحساب */}
+                          <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-0.5">
+                            👤 {u.name || 'User'}
+                          </p>
 
-                        {!u.isAdmin && u.email !== 'admin@debts.dz' && (
-                          <button
-                            onClick={() => handleDeleteUser(u.id, u.name || 'User')}
-                            disabled={loading}
-                            className="p-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-red-900/30 dark:hover:text-red-400 transition disabled:opacity-50"
-                            title={t('deleteUser')}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-12 text-center">
-              <Users className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-              <p className="text-gray-500 dark:text-gray-400 font-medium">{t('noUsers')}</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="text-center text-sm text-gray-400 dark:text-gray-500 mt-6">
-        <p>Admin Panel v1.0.0</p>
-        <p className="mt-1">
-          {language === 'ar' ? 'إدارة مدير الديون' : language === 'fr' ? 'Gestion des dettes' : 'Debts Manager Admin'}
-        </p>
-      </div>
-    </div>
-  );
-}
+                          {/* البريد الإلكتروني */}
+                          <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            <Mail className="w-3.5 h-3.5" />
+                            <span className="truncate">{u.email}</span>
+                          </div>
