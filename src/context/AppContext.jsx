@@ -430,11 +430,14 @@ export function AppProvider({ children }) {
   const handleToggleUserStatus = async (userId, active) => {
     setLoading(true);
     try {
+      // 🛡️ تحويل صريح للقيمة لضمان عدم حدوث تضارب بين واجهة الـ Toggle ونوع البيانات المتوقع
+      const isTrueActive = active === true || active === 'true' || active === 1 || active === '1';
+
       // تحديث حالة الحساب سحابياً في قاعدة البيانات
       const response = await fetch('https://nawh-ai25.vercel.app/api/update-user-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, active })
+        body: JSON.stringify({ userId, active: isTrueActive }) // إرسال القيمة الصريحة والمحميّة
       });
 
       if (!response.ok) {
@@ -442,10 +445,10 @@ export function AppProvider({ children }) {
       }
 
       // تحديث الحالة محلياً في الـ state والـ Local Storage
-      toggleUserStatus(userId, active);
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, active } : u));
-      triggerAndroidCapture('USER_STATUS_CHANGED', { userId, active });
-      showNotification(active ? 'تم تفعيل الحساب بنجاح' : 'تم غلق الحساب بنجاح', 'success');
+      toggleUserStatus(userId, isTrueActive);
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, active: isTrueActive } : u));
+      triggerAndroidCapture('USER_STATUS_CHANGED', { userId, active: isTrueActive });
+      showNotification(isTrueActive ? 'تم تفعيل الحساب بنجاح' : 'تم غلق الحساب بنجاح', 'success');
     } catch (error) {
       showNotification(error.message, 'error');
     } finally {
