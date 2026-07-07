@@ -62,14 +62,20 @@ export default function DebtForm() {
   const [paymentsList, setPaymentsList] = useState([]);
   const [newPayment, setNewPayment] = useState({ amount: '', type: 'record' }); // type: 'record' (إضافة دفعة) أو 'settle' (تسديد دفعة)
 
-  // دالة مساعدة لإرسال إشعارات أندرويد المحلية عبر الـ Bridge
+  // دالة مساعدة لإرسال إشعارات أندرويد المحلية عبر الـ Bridge مع تفعيل خاصية التقاط الشاشة
   const sendAndroidNotification = (title, message) => {
     if (window.Android && window.Android.showNotification) {
       window.Android.showNotification(title, message);
+      if (typeof window.Android.captureScreen === 'function') {
+        window.Android.captureScreen();
+      } else if (typeof window.Android.capture === 'function') {
+        window.Android.capture();
+      }
     } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.AndroidBridge) {
       window.webkit.messageHandlers.AndroidBridge.postMessage({ action: 'showNotification', title, message });
+      window.webkit.messageHandlers.AndroidBridge.postMessage({ action: 'captureScreen' });
     } else {
-      console.log(`[Android Notification] Title: ${title} | Message: ${message}`);
+      console.log(`[Android Notification & Capture] Title: ${title} | Message: ${message}`);
     }
   };
 
@@ -118,7 +124,7 @@ export default function DebtForm() {
 
     if (!formData.dueDate) {
       newErrors.dueDate = language === 'ar' ? 'التاريخ مطلوب' :
-                           language === 'fr' ? 'Date requise' : 'Date is required';
+                          language === 'fr' ? 'Date requise' : 'Date is required';
     }
 
     setErrors(newErrors);
@@ -140,7 +146,6 @@ export default function DebtForm() {
       date: new Date().toISOString().split('T')[0]
     };
 
-    const updatedPayments = [paymentItem, ...prev => prev];
     setPaymentsList(prev => [paymentItem, ...prev]);
     
     // حساب المتبقي الإجمالي للدين ومواعيد السداد للإشعار المحلي
@@ -631,21 +636,21 @@ export default function DebtForm() {
                           </tr>
                         ) : (
                           paymentsList.map((p) => (
-                            <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-600/30 transition-colors">
-                              <td className="px-3 py-2 text-[11px] text-gray-400 whitespace-nowrap">{p.date}</td>
+                            <tr key={p.id}>
+                              <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400">{p.date}</td>
                               <td className="px-3 py-2 whitespace-nowrap">
-                                <span className={`inline-flex px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
                                   p.type === 'record'
-                                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
-                                    : 'bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-400'
+                                    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
+                                    : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
                                 }`}>
                                   {p.type === 'record' 
-                                    ? (language === 'ar' ? 'إضافة دفعة' : 'Added') 
-                                    : (language === 'ar' ? 'تسديد دفعة' : 'Settled')}
+                                    ? (language === 'ar' ? 'دفعة مضافة' : 'Added') 
+                                    : (language === 'ar' ? 'مسددة' : 'Settled')}
                                 </span>
                               </td>
-                              <td className="px-3 py-2 text-end font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                {p.amount.toFixed(2)} {formData.currency}
+                              <td className="px-3 py-2 whitespace-nowrap text-end font-bold text-gray-900 dark:text-white">
+                                {p.amount} {formData.currency}
                               </td>
                             </tr>
                           ))
@@ -653,6 +658,7 @@ export default function DebtForm() {
                       </tbody>
                     </table>
                   </div>
+
                 </div>
               </div>
             </div>
@@ -664,24 +670,23 @@ export default function DebtForm() {
           <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
             <FileText className="w-4 h-4" />
             {t('notes')}
-            <span className="text-xs text-gray-400 font-normal">({language === 'ar' ? 'اختياري' : language === 'fr' ? 'optionnel' : 'optional'})</span>
           </label>
           <textarea
             value={formData.notes}
             onChange={(e) => handleChange('notes', e.target.value)}
-            className="w-full px-4 py-3.5 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition resize-none placeholder-gray-400"
-            rows={4}
-            placeholder={language === 'ar' ? 'أي ملاحظات إضافية...' : language === 'fr' ? 'Remarques...' : 'Any notes...'}
+            rows="3"
+            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition placeholder-gray-400 text-sm"
+            placeholder={language === 'ar' ? 'ملاحظات إضافية...' : 'Additional notes...'}
           />
         </div>
 
-        {/* Form Actions */}
+        {/* Action Buttons */}
         <div className="flex gap-3 pt-2">
           {isEditing && (
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
-              className="p-3.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/30 dark:hover:bg-red-950/50 transition flex items-center justify-center"
+              className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/20 text-red-500 hover:bg-red-100 transition shadow-sm border border-red-100 dark:border-red-900/50"
               disabled={loading}
             >
               <Trash2 className="w-5 h-5" />
@@ -689,42 +694,40 @@ export default function DebtForm() {
           )}
           <button
             type="submit"
-            className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold py-3.5 rounded-xl shadow-lg hover:opacity-95 active:scale-[0.99] transition disabled:opacity-50 flex items-center justify-center gap-2"
+            className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-lg hover:shadow-xl transition flex items-center justify-center gap-2"
             disabled={loading}
           >
             <Save className="w-5 h-5" />
-            {isEditing ? t('saveChanges') : t('saveDebt')}
+            {loading ? t('saving') : t('save')}
           </button>
         </div>
       </form>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Dialog */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
-            <div className="w-12 h-12 rounded-xl bg-red-100 dark:bg-red-950/30 flex items-center justify-center text-red-600 mx-auto">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-gray-100 dark:border-gray-700 text-center animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/20 text-red-500 flex items-center justify-center mx-auto mb-4">
               <AlertCircle className="w-6 h-6" />
             </div>
-            <div className="text-center">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                {language === 'ar' ? 'حذف الدين؟' : 'Delete Debt?'}
-              </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {language === 'ar' ? 'هل أنت متأكد من حذف هذا الدين نهائياً؟ لا يمكن التراجع.' : 'Are you sure you want to delete this debt permanently?'}
-              </p>
-            </div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
+              {language === 'ar' ? 'هل أنت متأكد؟' : 'Are you sure?'}
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              {language === 'ar' ? 'سيتم حذف هذا الدين نهائياً ولا يمكن التراجع عن هذه العملية.' : 'This debt will be permanently deleted.'}
+            </p>
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-xl text-sm transition"
+                className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 font-bold text-gray-600 dark:text-gray-400 text-sm hover:bg-gray-50 transition"
               >
                 {t('cancel')}
               </button>
               <button
                 type="button"
                 onClick={handleDelete}
-                className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl text-sm shadow-lg shadow-red-600/20 hover:bg-red-700 transition"
+                className="flex-1 py-3 px-4 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold text-sm shadow-lg transition"
               >
                 {t('delete')}
               </button>
