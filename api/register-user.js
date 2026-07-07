@@ -70,7 +70,7 @@ export default async function handler(req, res) {
     // [قسم إنشاء الحساب]: الكود الخاص بك كما هو مع تكييفه مع كائن body المحصن
     const { name, companyName, email, password, phone } = body;
 
-    // التحقق من وجود الحقول الأساسية المطلوبة بالتسجيل
+    // 👈 تم نقل التحقق إلى هنا ليعمل فقط في حالة طلب إنشاء الحساب وليس تحديث الحالة
     if (!name || !companyName || !email || !password) {
       return res.status(400).json({ 
         error: 'يرجى ملء جميع الحقول الأساسية (الاسم، اسم الشركة، البريد، كلمة المرور)' 
