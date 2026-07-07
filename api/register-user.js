@@ -19,6 +19,40 @@ export default async function handler(req, res) {
   });
 
   try {
+    // الاتصال بقاعدة البيانات في البداية لخدمة أي من العمليتين بأمان
+    await client.connect();
+
+    // ----------------------------------------------------------------------
+    // [قسم تحديث الحالة]: إذا كان الطلب يحتوي على userId، يتم معالجته هنا فوراً وينتهي الطلب
+    // ----------------------------------------------------------------------
+    if (req.body && req.body.userId !== undefined) {
+      const { userId, active } = req.body;
+      
+      // تحويل القيمة القادمة لـ Boolean صريح متوافق مع عمود الـ BOOLEAN بالجدول (false أو true)
+      const isTrueActive = active === true || active === 'true' || active === 1 || active === '1';
+
+      const updateQuery = `
+        UPDATE app_users 
+        SET active = $1 
+        WHERE id = $2
+        RETURNING id, name, email, active;
+      `;
+      
+      const result = await client.query(updateQuery, [isTrueActive, userId]);
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'المستخدم غير موجود في قاعدة البيانات' });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: 'تم تحديث حالة الحساب بنجاح داخل قاعدة البيانات',
+        user: result.rows[0]
+      });
+    }
+    // ----------------------------------------------------------------------
+
+    // [قسم إنشاء الحساب]: الكود الخاص بك كما هو بالضبط دون تغيير حرف واحد
     // استخراج المدخلات من واجهة المستخدم (بما فيها اسم الشركة)
     const { name, companyName, email, password, phone } = req.body;
 
@@ -30,9 +64,6 @@ export default async function handler(req, res) {
     }
 
     const cleanEmail = email.toLowerCase().trim();
-
-    // الاتصال بقاعدة البيانات
-    await client.connect();
 
     // 1. التأكد التلقائي من تواجد الجدول وهيكليته الصحيحة داخل قاعدة البيانات
     const createTableQuery = `
@@ -88,8 +119,8 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('Registration API Error:', error);
-    return res.status(500).json({ error: 'حدث خطأ في الخادم أثناء إنشاء الحساب، يرجى المحاولة لاحقاً' });
+    console.error('API Error:', error);
+    return res.status(500).json({ error: 'حدث خطأ في الخادم، يرجى المحاولة لاحقاً' });
   } finally {
     // إغلاق الاتصال بأمان
     await client.end().catch(err => console.error('Error closing client:', err));
