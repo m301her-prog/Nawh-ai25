@@ -22,11 +22,12 @@ import {
   CheckCircle2
 } from 'lucide-react';
 import { currencies } from '../i18n/translations.jsx';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
 /**
  * Debt Form Page
  * Handles both adding and editing debts
- * Uses neonService for all data operations with Android capture triggers
+ * Uses LocalNotifications for all local notification actions
  */
 export default function DebtForm() {
   const { t, addDebt, updateDebt, deleteDebt, debts, showNotification, loading, language } = useApp();
@@ -37,7 +38,6 @@ export default function DebtForm() {
   const existingDebt = isEditing ? debts.find(d => d.id === id) : null;
 
   const [formData, setFormData] = useState({
-    type: 'disabled_to_me',
     type: 'owed_to_me',
     personName: '',
     phone: '',
@@ -62,20 +62,31 @@ export default function DebtForm() {
   const [paymentsList, setPaymentsList] = useState([]);
   const [newPayment, setNewPayment] = useState({ amount: '', type: 'record' }); // type: 'record' (إضافة دفعة) أو 'settle' (تسديد دفعة)
 
-  // دالة مساعدة لإرسال إشعارات أندرويد المحلية عبر الـ Bridge مع تفعيل خاصية التقاط الشاشة
-  const sendAndroidNotification = (title, message) => {
-    if (window.Android && window.Android.showNotification) {
-      window.Android.showNotification(title, message);
-      if (typeof window.Android.captureScreen === 'function') {
-        window.Android.captureScreen();
-      } else if (typeof window.Android.capture === 'function') {
-        window.Android.capture();
+  // دالة مساعدة لإرسال إشعارات محلية فورية عبر مكتبة Capacitor
+  const sendAndroidNotification = async (title, message) => {
+    try {
+      // التحقق من الإذن وطلبه إذا لم يكن ممنوحاً
+      const permStatus = await LocalNotifications.checkPermissions();
+      if (permStatus.display !== 'granted') {
+        await LocalNotifications.requestPermissions();
       }
-    } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.AndroidBridge) {
-      window.webkit.messageHandlers.AndroidBridge.postMessage({ action: 'showNotification', title, message });
-      window.webkit.messageHandlers.AndroidBridge.postMessage({ action: 'captureScreen' });
-    } else {
-      console.log(`[Android Notification & Capture] Title: ${title} | Message: ${message}`);
+
+      // إطلاق الإشعار المحلي فوراً
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            title: title,
+            body: message,
+            id: Math.floor(Math.random() * 100000),
+            schedule: { at: new Date(Date.now() + 500) }, // إطلاق فوري (بعد نصف ثانية)
+            sound: 'default',
+            actionTypeId: '',
+            extra: null
+          }
+        ]
+      });
+    } catch (error) {
+      console.error('Error sending local notification:', error);
     }
   };
 
@@ -208,7 +219,7 @@ export default function DebtForm() {
         await updateDebt(id, debtData);
       } else {
         await addDebt(debtData);
-        // إطلاق إشعار محلي أندرويد عند إضافة دين جديد بنجاح
+        // إطلاق إشعار محلي عند إضافة دين جديد بنجاح
         const debtTypeString = formData.type === 'owed_to_me' 
           ? (language === 'ar' ? 'مستحق لك من' : 'owed to you by') 
           : (language === 'ar' ? 'متوجب عليك لصالح' : 'you owe to');
@@ -627,57 +638,43 @@ export default function DebtForm() {
                           <th scope="col" className="px-3 py-2 text-end">{language === 'ar' ? 'المبلغ' : 'Amount'}</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-gray-600 text-gray-900 dark:text-white">
-                        {paymentsList.length === 0 ? (
-                          <tr>
-                            <td colSpan={3} className="px-3 py-4 text-center text-[11px] text-gray-400 font-medium">
-                              {language === 'ar' ? 'لا يوجد أي دفعات مسجلة لهذا الدين حتى الآن' : 'No payments registered yet.'}
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-600">
+                        {paymentsList.map((p) => (
+                          <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-600/50 transition-colors">
+                            <td className="px-3 py-2 text-gray-600 dark:text-gray-300 whitespace-nowrap">{p.date}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                p.type === 'record'
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                  : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                              }`}>
+                                {p.type === 'record' 
+                                  ? (language === 'ar' ? 'إضافة' : 'Added') 
+                                  : (language === 'ar' ? 'تسديد' : 'Settled')}
+                              </span>
+                            </td>
+                            <td className={`px-3 py-2 text-end font-bold ${
+                              p.type === 'record' ? 'text-emerald-600' : 'text-blue-600'
+                            }`}>
+                              {p.amount.toFixed(2)} {formData.currency}
                             </td>
                           </tr>
-                        ) : (
-                          paymentsList.map((p) => (
-                            <tr key={p.id}>
-                              <td className="px-3 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400">{p.date}</td>
-                              <td className="px-3 py-2 whitespace-nowrap">
-                                <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
-                                  p.type === 'record'
-                                    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400'
-                                    : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-                                }`}>
-                                  {p.type === 'record' 
-                                    ? (language === 'ar' ? 'دفعة مضافة' : 'Added') 
-                                    : (language === 'ar' ? 'مسددة' : 'Settled')}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 whitespace-nowrap text-end font-bold text-gray-900 dark:text-white">
-                                {p.amount} {formData.currency}
-                              </td>
-                            </tr>
-                          ))
+                        ))}
+                        {paymentsList.length === 0 && (
+                          <tr>
+                            <td colSpan="3" className="px-3 py-4 text-center text-gray-400 dark:text-gray-500">
+                              {language === 'ar' ? 'لا توجد حركات دفع مسجلة بعد' : 'No payments registered yet'}
+                            </td>
+                          </tr>
                         )}
                       </tbody>
                     </table>
                   </div>
-
                 </div>
               </div>
+
             </div>
           )}
-        </div>
-
-        {/* Notes */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg">
-          <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
-            <FileText className="w-4 h-4" />
-            {t('notes')}
-          </label>
-          <textarea
-            value={formData.notes}
-            onChange={(e) => handleChange('notes', e.target.value)}
-            rows="3"
-            className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition placeholder-gray-400 text-sm"
-            placeholder={language === 'ar' ? 'ملاحظات إضافية...' : 'Additional notes...'}
-          />
         </div>
 
         {/* Action Buttons */}
@@ -686,7 +683,7 @@ export default function DebtForm() {
             <button
               type="button"
               onClick={() => setShowDeleteConfirm(true)}
-              className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/20 text-red-500 hover:bg-red-100 transition shadow-sm border border-red-100 dark:border-red-900/50"
+              className="p-3.5 bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 rounded-xl transition shadow-sm flex items-center justify-center"
               disabled={loading}
             >
               <Trash2 className="w-5 h-5" />
@@ -694,7 +691,7 @@ export default function DebtForm() {
           )}
           <button
             type="submit"
-            className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold py-3.5 px-6 rounded-xl shadow-lg hover:shadow-xl transition flex items-center justify-center gap-2"
+            className="flex-1 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-base"
             disabled={loading}
           >
             <Save className="w-5 h-5" />
@@ -703,31 +700,31 @@ export default function DebtForm() {
         </div>
       </form>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-gray-100 dark:border-gray-700 text-center animate-in zoom-in-95 duration-150">
-            <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/20 text-red-500 flex items-center justify-center mx-auto mb-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl text-center">
+            <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center mx-auto mb-4 text-red-500">
               <AlertCircle className="w-6 h-6" />
             </div>
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">
-              {language === 'ar' ? 'هل أنت متأكد؟' : 'Are you sure?'}
+              {language === 'ar' ? 'هل أنت متأكد من الحذف؟' : 'Confirm Delete'}
             </h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              {language === 'ar' ? 'سيتم حذف هذا الدين نهائياً ولا يمكن التراجع عن هذه العملية.' : 'This debt will be permanently deleted.'}
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
+              {language === 'ar' ? 'لا يمكن التراجع عن هذا الإجراء وسيتم مسح كافة البيانات.' : 'This action cannot be undone.'}
             </p>
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
-                className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-200 dark:border-gray-600 font-bold text-gray-600 dark:text-gray-400 text-sm hover:bg-gray-50 transition"
+                className="flex-1 py-2.5 px-4 rounded-xl border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-400 font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition"
               >
                 {t('cancel')}
               </button>
               <button
                 type="button"
                 onClick={handleDelete}
-                className="flex-1 py-3 px-4 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold text-sm shadow-lg transition"
+                className="flex-1 py-2.5 px-4 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 shadow-md transition"
               >
                 {t('delete')}
               </button>
