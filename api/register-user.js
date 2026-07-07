@@ -19,16 +19,31 @@ export default async function handler(req, res) {
   });
 
   try {
-    // الاتصال بقاعدة البيانات في البداية لخدمة أي من العمليتين بأمان
+    // الاتصال بقاعدة البيانات
     await client.connect();
+
+    // 🛡️ [تحصين قراءة المدخلات]: التأكد من تحويل النص إلى كائن JSON في حال لم يقم الفريمورك بتحويله تلقائياً
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        console.error('Failed to parse body string:', e);
+      }
+    }
+
+    // التحقق من أن الـ body موجود وليس فارغاً
+    if (!body) {
+      return res.status(400).json({ error: 'طلب فارغ، لم يتم إرسال أي بيانات' });
+    }
 
     // ----------------------------------------------------------------------
     // [قسم تحديث الحالة]: إذا كان الطلب يحتوي على userId، يتم معالجته هنا فوراً وينتهي الطلب
     // ----------------------------------------------------------------------
-    if (req.body && req.body.userId !== undefined) {
-      const { userId, active } = req.body;
+    if (body.userId !== undefined && body.active !== undefined) {
+      const { userId, active } = body;
       
-      // تحويل القيمة القادمة لـ Boolean صريح متوافق مع عمود الـ BOOLEAN بالجدول (false أو true)
+      // تحويل القيمة القادمة لـ Boolean صريح متوافق مع عمود الـ BOOLEAN بالجدول
       const isTrueActive = active === true || active === 'true' || active === 1 || active === '1';
 
       const updateQuery = `
@@ -52,9 +67,8 @@ export default async function handler(req, res) {
     }
     // ----------------------------------------------------------------------
 
-    // [قسم إنشاء الحساب]: الكود الخاص بك كما هو بالضبط دون تغيير حرف واحد
-    // استخراج المدخلات من واجهة المستخدم (بما فيها اسم الشركة)
-    const { name, companyName, email, password, phone } = req.body;
+    // [قسم إنشاء الحساب]: الكود الخاص بك كما هو مع تكييفه مع كائن body المحصن
+    const { name, companyName, email, password, phone } = body;
 
     // التحقق من وجود الحقول الأساسية المطلوبة بالتسجيل
     if (!name || !companyName || !email || !password) {
@@ -90,7 +104,7 @@ export default async function handler(req, res) {
     }
 
     // 3. تجهيز بيانات الحساب الجديد
-    const userId = 'usr_' + Math.random().toString(36).substring(2, 11);
+    const newUserId = 'usr_' + Math.random().toString(36).substring(2, 11);
     const isAdmin = cleanEmail === 'admin@debts.dz';
     const createdAt = new Date().toISOString();
 
@@ -101,9 +115,9 @@ export default async function handler(req, res) {
     `;
     
     await client.query(insertQuery, [
-      userId, 
+      newUserId, 
       name, 
-      companyName, // القيمة الجديدة القادمة من الواجهة
+      companyName, 
       cleanEmail, 
       password, 
       phone || '', 
@@ -112,10 +126,9 @@ export default async function handler(req, res) {
       createdAt
     ]);
 
-    // إرجاع استجابة النجاح
     return res.status(200).json({
       message: 'تم إنشاء الحساب بنجاح عبر الـ API',
-      userId: userId
+      userId: newUserId
     });
 
   } catch (error) {
