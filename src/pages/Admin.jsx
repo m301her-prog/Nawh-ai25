@@ -8,7 +8,6 @@ import {
   Calendar,
   Shield,
   UserCheck,
-  UserX,
   Trash2,
   DollarSign,
   Search,
@@ -18,32 +17,55 @@ import {
 /**
  * Admin Dashboard Page
  * For admin users only - manage all registered users/companies
- * Uses neonService for user management operations
+ * Uses independent direct API for isolation
  */
 export default function Admin() {
   const {
     t,
     user,
     isAdmin,
-    users,
-    fetchUsers,
-    toggleUserStatus,
     deleteUser,
-    loading,
     showNotification,
     language
   } = useApp();
   
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+  const [localUsers, setLocalUsers] = useState([]);
+  const [localLoading, setLocalLoading] = useState(false);
+
+  // رابط الـ API المستقل
+  const ADMIN_API_URL = 'https://nawh-ai25.vercel.app/api/admin-users';
+
+  // دالة جلب الحسابات المستقلة (GET)
+  const fetchAdminUsers = async () => {
+    setLocalLoading(true);
+    try {
+      const response = await fetch(ADMIN_API_URL);
+      if (!response.ok) throw new Error('فشلت عملية جلب الحسابات من السيرفر');
+      const data = await response.json();
+      if (data.success) {
+        setLocalUsers(data.users || []);
+        // حفظ نسخة احتياطية في الكاش المحلي
+        localStorage.setItem('admin_cached_users', JSON.stringify(data.users));
+      }
+    } catch (error) {
+      console.error("خطأ جلب البيانات المستقل:", error);
+      // استرجاع البيانات الاحتياطية في حال انقطاع السيرفر
+      const cached = localStorage.getItem('admin_cached_users');
+      if (cached) setLocalUsers(JSON.parse(cached));
+    } finally {
+      setLocalLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!isAdmin) {
       navigate('/');
       return;
     }
-    fetchUsers();
-  }, [isAdmin, navigate, fetchUsers]);
+    fetchAdminUsers();
+  }, [isAdmin, navigate]);
 
   if (!isAdmin) {
     return null;
@@ -52,7 +74,7 @@ export default function Admin() {
   // فحص دقيق للحالة النشطة للمستخدم
   const checkIsActive = (u) => u.active === true || u.active === 'true' || u.active === 1 || u.status === 'active';
 
-  const activeUsers = users.filter(u => checkIsActive(u)).length;
+  const activeUsers = localUsers.filter(u => checkIsActive(u)).length;
 
   const formatDate = (dateString) => {
     const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
@@ -63,24 +85,57 @@ export default function Admin() {
     });
   };
 
-  // التعامل مع التفعيل والتعطيل وإرسال البيانات الصحيحة للباك إند
-  const handleToggleStatus = async (userId, currentStatus) => {
+  // دالة الـ Capture للاتصال الخارجي وتنبيه تطبيق الأندرويد
+  const triggerAndroidCapture = (eventName, data) => {
     try {
-      const isCurrentlyActive = currentStatus === true || currentStatus === 'true' || currentStatus === 1;
-      const nextStatus = !isCurrentlyActive; 
+      if (window.Android && window.Android.captureEvent) {
+        window.Android.captureEvent(eventName, JSON.stringify(data));
+      } else if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.Android) {
+        window.webkit.messageHandlers.Android.postMessage({ event: eventName, data });
+      }
+      console.log(`[Capture triggered]: ${eventName}`, data);
+    } catch (e) {
+      console.error("Android capture failed:", e);
+    }
+  };
 
-      // نرسل المعاكس الصريح، ويمكنك تعديل الباراميترز هنا بناءً على متطلبات الباك إند لديك
-      // بعض الباك إند يتطلب إرسال كائن مثل: { active: nextStatus } أو القيمة مباشرة
-      await toggleUserStatus(userId, nextStatus);
-      
-      showNotification(
-        nextStatus
-          ? (language === 'ar' ? 'تم تفعيل الحساب بنجاح' : language === 'fr' ? 'Utilisateur activé' : 'User activated')
-          : (language === 'ar' ? 'تم تعطيل الحساب بنجاح' : language === 'fr' ? 'Utilisateur désactivé' : 'User deactivated'),
-        'success'
-      );
+  // التعامل مع التفعيل والتعطيل مباشرة عبر الـ API الجديد (POST)
+  const handleToggleStatus = async (userId, currentStatus) => {
+    setLocalLoading(true);
+    const isCurrentlyActive = currentStatus === true || currentStatus === 'true' || currentStatus === 1;
+    const nextStatus = !isCurrentlyActive; 
+
+    try {
+      const response = await fetch(ADMIN_API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, active: nextStatus })
+      });
+
+      if (!response.ok) {
+        throw new Error('فشل تحديث حالة المستخدم على السيرفر');
+      }
+
+      const data = await response.json();
+
+      if (data.success) {
+        // تحديث الحالة محلياً في الواجهة فوراً دون الحاجة لإعادة تحميل الصفحة بالكامل
+        setLocalUsers(prev => prev.map(u => u.id === userId ? { ...u, active: nextStatus } : u));
+        
+        // 🚀 إرسال إشارة الاتصال الخارجي (Capture) للأندرويد
+        triggerAndroidCapture('USER_STATUS_CHANGED', { userId, active: nextStatus });
+
+        showNotification(
+          nextStatus
+            ? (language === 'ar' ? 'تم تفعيل الحساب بنجاح' : language === 'fr' ? 'Utilisateur activé' : 'User activated')
+            : (language === 'ar' ? 'تم تعطيل الحساب بنجاح' : language === 'fr' ? 'Utilisateur désactivé' : 'User deactivated'),
+          'success'
+        );
+      }
     } catch (error) {
       showNotification(error.message || 'حدث خطأ أثناء تحديث الحالة', 'error');
+    } finally {
+      setLocalLoading(false);
     }
   };
 
@@ -94,6 +149,12 @@ export default function Admin() {
     if (confirmed) {
       try {
         await deleteUser(userId);
+        // إزالة من المصفوفة المحلية أيضاً بعد الحذف الناجح
+        setLocalUsers(prev => prev.filter(u => u.id !== userId));
+        
+        // إشعار كابتشور بالحذف
+        triggerAndroidCapture('USER_DELETED', { userId });
+
         showNotification(
           language === 'ar' ? 'تم حذف المستخدم'
           : language === 'fr' ? 'Utilisateur supprimé'
@@ -106,20 +167,20 @@ export default function Admin() {
     }
   };
 
-  // تصفية المستخدمين بناءً على اسم الشركة، اسم المستخدم أو البريد الإلكتروني
-  const filteredUsers = users.filter(u => {
+  // تصفية المستخدمين بناءً على مصفوفة الحسابات المستقلة
+  const filteredUsers = localUsers.filter(u => {
     const searchLower = searchTerm.toLowerCase();
     return (
-      (u.companyName && u.companyName.toLowerCase().includes(searchLower)) ||
+      (u.company_name && u.company_name.toLowerCase().includes(searchLower)) ||
       (u.name && u.name.toLowerCase().includes(searchLower)) ||
       (u.email && u.email.toLowerCase().includes(searchLower))
     );
   });
 
   const adminStats = {
-    totalUsers: users.length,
+    totalUsers: localUsers.length,
     activeUsers,
-    totalDebts: users.reduce((sum, u) => {
+    totalDebts: localUsers.reduce((sum, u) => {
       const userDebts = JSON.parse(localStorage.getItem(`user_${u.id}_debts`) || '[]');
       return sum + userDebts.length;
     }, 0)
@@ -181,7 +242,7 @@ export default function Admin() {
           <Search className={`absolute top-3 w-5 h-5 text-gray-400 ${language === 'ar' ? 'right-3' : 'left-3'}`} />
           <input
             type="text"
-            placeholder={language === 'ar' ? 'ابحث باسم الشركة، العميل أو البريد...' : 'Rechercher par entreprise, nom أو e-mail...'}
+            placeholder={language === 'ar' ? 'ابحث باسم الشركة، العميل أو البريد...' : 'Rechercher par entreprise, nom ou e-mail...'}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className={`w-full p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none transition ${language === 'ar' ? 'pr-10' : 'pl-10'}`}
@@ -198,10 +259,11 @@ export default function Admin() {
               {language === 'ar' ? 'الحسابات والشركات المسجلة' : 'Comptes & Entreprises'}
             </h2>
             <button
-              onClick={() => fetchUsers()}
-              className="text-sm text-purple-500 hover:underline font-medium"
+              onClick={fetchAdminUsers}
+              disabled={localLoading}
+              className="text-sm text-purple-500 hover:underline font-medium disabled:opacity-50"
             >
-              {language === 'ar' ? 'تحديث' : language === 'fr' ? 'Actualiser' : 'Refresh'}
+              {localLoading ? (language === 'ar' ? 'جاري التحميل...' : 'Chargement...') : (language === 'ar' ? 'تحديث الفوري' : 'Actualiser')}
             </button>
           </div>
 
@@ -209,7 +271,7 @@ export default function Admin() {
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {filteredUsers.map(u => {
                 const isUserActive = checkIsActive(u);
-                const isProtectedAdmin = u.isAdmin || u.email === 'admin@debts.dz';
+                const isProtectedAdmin = u.is_admin || u.isAdmin || u.email === 'admin@debts.dz';
 
                 return (
                   <div
@@ -220,21 +282,18 @@ export default function Admin() {
                       
                       {/* Left: Info & Branding */}
                       <div className="flex items-center gap-4 flex-1 min-w-0">
-                        {/* Avatar / Logo Container */}
                         <div className={`w-14 h-14 rounded-xl flex items-center justify-center font-bold text-white text-lg shadow-sm shrink-0 ${
                           isUserActive
                             ? 'bg-gradient-to-br from-purple-500 to-indigo-600'
                             : 'bg-gray-400 dark:bg-gray-600'
                         }`}>
-                          {((u.companyName?.[0] || u.name?.[0] || u.email?.[0] || 'C')).toUpperCase()}
+                          {((u.company_name?.[0] || u.companyName?.[0] || u.name?.[0] || u.email?.[0] || 'C')).toUpperCase()}
                         </div>
 
-                        {/* Text Details */}
                         <div className="flex-1 min-w-0">
-                          {/* Company / Store Name (Very Prominent) */}
                           <div className="flex items-center gap-2 flex-wrap">
                             <h3 className="font-extrabold text-base text-gray-900 dark:text-white truncate">
-                              {u.companyName || u.name || 'شركة غير مسمى'}
+                              {u.company_name || u.companyName || u.name || 'شركة غير مسمى'}
                             </h3>
                             
                             {isProtectedAdmin && (
@@ -254,7 +313,6 @@ export default function Admin() {
                             </span>
                           </div>
 
-                          {/* Owner Name & Email */}
                           <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 font-medium">
                             {language === 'ar' ? 'المدير:' : 'Admin:'} {u.name || 'لا يوجد'}
                           </p>
@@ -264,10 +322,10 @@ export default function Admin() {
                             <span className="truncate">{u.email}</span>
                           </div>
 
-                          {u.createdAt && (
+                          {(u.created_at || u.createdAt) && (
                             <div className="flex items-center gap-2 text-xs text-gray-400 dark:text-gray-500 mt-1">
                               <Calendar className="w-3 h-3" />
-                              <span>{language === 'ar' ? 'تاريخ التسجيل:' : 'Inscrit le :'} {formatDate(u.createdAt)}</span>
+                              <span>{language === 'ar' ? 'تاريخ التسجيل:' : 'Inscrit le :'} {formatDate(u.created_at || u.createdAt)}</span>
                             </div>
                           )}
                         </div>
@@ -275,8 +333,6 @@ export default function Admin() {
 
                       {/* Right: Modern Fast Controls */}
                       <div className="flex items-center gap-4 self-end sm:self-center shrink-0">
-                        
-                        {/* Easy Toggle Switch Button */}
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-gray-400 font-medium hidden md:inline">
                             {isUserActive 
@@ -286,7 +342,7 @@ export default function Admin() {
                           
                           <button
                             type="button"
-                            disabled={loading || isProtectedAdmin}
+                            disabled={localLoading || isProtectedAdmin}
                             onClick={() => handleToggleStatus(u.id, u.active)}
                             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-40 disabled:cursor-not-allowed ${
                               isUserActive ? 'bg-emerald-500' : 'bg-gray-300 dark:bg-gray-600'
@@ -302,11 +358,10 @@ export default function Admin() {
                           </button>
                         </div>
 
-                        {/* Delete Button */}
                         {!isProtectedAdmin && (
                           <button
-                            onClick={() => handleDeleteUser(u.id, u.companyName || u.name || 'User')}
-                            disabled={loading}
+                            onClick={() => handleDeleteUser(u.id, u.company_name || u.companyName || u.name || 'User')}
+                            disabled={localLoading}
                             className="p-2 rounded-xl bg-gray-100 text-gray-600 hover:bg-red-100 hover:text-red-600 dark:bg-gray-700 dark:text-gray-400 dark:hover:bg-red-900/30 dark:hover:text-red-400 transition disabled:opacity-50"
                             title={t('deleteUser')}
                           >
@@ -333,7 +388,7 @@ export default function Admin() {
 
       {/* Footer */}
       <div className="text-center text-sm text-gray-400 dark:text-gray-500 mt-6">
-        <p>Admin Panel v1.1.0</p>
+        <p>Admin Panel v1.2.0 (Isolated)</p>
         <p className="mt-1">
           {language === 'ar' ? 'إدارة نظام دفاتر الديون' : language === 'fr' ? 'Gestion des dettes' : 'Debts Manager Admin'}
         </p>
