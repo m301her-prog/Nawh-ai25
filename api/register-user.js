@@ -1,12 +1,10 @@
 import pg from 'pg';
 
 export default async function handler(req, res) {
-  // التحقق من نوع الطلب
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // إعداد الاتصال بقاعدة البيانات
   const baseConnectionString = process.env.DATABASE_URL;
   if (!baseConnectionString) {
     return res.status(500).json({ error: 'DATABASE_URL غير معرف في متغيرات البيئة' });
@@ -21,17 +19,14 @@ export default async function handler(req, res) {
   });
 
   try {
-    // التأكد من قراءة req.body سواء كان كائن أو النص المفرغ
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     
-    // استخراج المدخلات مع دعم التسميتين (camelCase و snake_case)
     const name = body.name;
     const companyName = body.companyName || body.company_name;
     const email = body.email;
     const password = body.password;
     const phone = body.phone;
 
-    // التحقق من وجود الحقول الأساسية المطلوبة
     if (!name || !companyName || !email || !password) {
       return res.status(400).json({ 
         error: 'يرجى ملء جميع الحقول الأساسية (الاسم، اسم الشركة، البريد، كلمة المرور)' 
@@ -40,12 +35,14 @@ export default async function handler(req, res) {
 
     const cleanEmail = email.toLowerCase().trim();
 
-    // الاتصال بقاعدة البيانات
     await client.connect();
 
-    // 1. إنشاء الجدول إن لم يكن موجوداً
-    const createTableQuery = `
-      CREATE TABLE IF NOT EXISTS app_users (
+    // بداية المعاملة (Transaction) لضمان تنفيذ كل الخطوات أو إغلاقها جميعاً
+    await client.query('BEGIN');
+
+    // 1. إنشاء جدول الحسابات الرئيسي إن لم يكن موجوداً
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS public.app_users (
         id VARCHAR(50) PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         company_name VARCHAR(150) NOT NULL,
@@ -56,50 +53,61 @@ export default async function handler(req, res) {
         active BOOLEAN DEFAULT TRUE,
         created_at VARCHAR(50) NOT NULL
       );
-    `;
-    await client.query(createTableQuery);
+    `);
 
-    // 2. التحقق مما إذا كان البريد الإلكتروني مسجلاً مسبقاً
-    const checkUserQuery = 'SELECT id FROM app_users WHERE LOWER(email) = $1 LIMIT 1';
-    const checkResult = await client.query(checkUserQuery, [cleanEmail]);
-
+    // 2. التحقق من تكرار البريد
+    const checkResult = await client.query('SELECT id FROM public.app_users WHERE LOWER(email) = $1 LIMIT 1', [cleanEmail]);
     if (checkResult.rows.length > 0) {
+      await client.query('ROLLBACK'); // إلغاء العملية
       return res.status(400).json({ error: 'هذا البريد الإلكتروني مسجل بالفعل' });
     }
 
-    // 3. تجهيز بيانات الحساب الجديد
     const userId = 'usr_' + Math.random().toString(36).substring(2, 11);
     const isAdmin = cleanEmail === 'admin@debts.dz';
     const createdAt = new Date().toISOString();
 
-    // 4. إدراج الحساب الجديد
+    // 3. إنشاء اسم Schema فريد ونظيف للشركة (مثلاً: tenant_usr_xxxx)
+    const schemaName = `tenant_${userId}`;
+
+    // 4. إنشاء الـ Schema الخاصة بالشركة
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${schemaName}`);
+
+    // 5. (اختياري) إنشاء جداول الشركة داخل الـ Schema الجديدة الخاصة بها
+    /* 
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ${schemaName}.debts (
+        id SERIAL PRIMARY KEY,
+        amount NUMERIC NOT NULL,
+        description TEXT
+      );
+    `);
+    */
+
+    // 6. إدراج الحساب الجديد في الجدول الرئيسي
     const insertQuery = `
-      INSERT INTO app_users (id, name, company_name, email, password, phone, is_admin, active, created_at)
+      INSERT INTO public.app_users (id, name, company_name, email, password, phone, is_admin, active, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `;
     
     await client.query(insertQuery, [
-      userId, 
-      name, 
-      companyName, 
-      cleanEmail, 
-      password, 
-      phone || '', 
-      isAdmin, 
-      true, 
-      createdAt
+      userId, name, companyName, cleanEmail, password, phone || '', isAdmin, true, createdAt
     ]);
 
+    // تأكيد وتنفيذ كل العمليات في قاعدة البيانات
+    await client.query('COMMIT');
+
     return res.status(200).json({
-      message: 'تم إنشاء الحساب بنجاح عبر الـ API',
-      userId: userId
+      message: 'تم إنشاء الحساب والـ Schema الخاصة به بنجاح',
+      userId: userId,
+      schemaName: schemaName
     });
 
   } catch (error) {
+    // في حالة حدوث أي خطأ، يتم التراجع عن جميع التغييرات (عدم إنشاء اسكيما ولا حساب)
+    await client.query('ROLLBACK');
     console.error('Registration API Error:', error);
-    return res.status(500).json({ error: 'حدث خطأ في الخادم أثناء إنشاء الحساب، يرجى المحاولة لاحقاً' });
+    return res.status(500).json({ error: 'حدث خطأ أثناء إنشاء الحساب والـ Schema' });
   } finally {
-    // إغلاق الاتصال دائماً في النهاية
     await client.end().catch(err => console.error('Error closing client:', err));
   }
 }
