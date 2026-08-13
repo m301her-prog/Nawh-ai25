@@ -1,0 +1,17 @@
+name: Check Due Debts Daily
+
+on:
+  schedule:
+    # يتم تشغيل هذا الأكشن أوتوماتيكياً كل يوم الساعة 8 صباحاً بتوقيت UTC
+    - cron: '0 8 * * *'
+  workflow_dispatch: # يتيح لك زر لتشغيله يدوياً متى شئت من لوحة تحكم جيثب
+
+jobs:
+  trigger-api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send POST Request to Vercel API
+        run: |
+          curl -X POST "https://nawh-ai25.vercel.app/api/cron/check-due-debts" \
+          -H "Authorization: Bearer ${{ secrets.CRON_SECRET_KEY }}" \
+          -H "Content-Type: application/json"
