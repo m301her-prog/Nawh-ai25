@@ -6,23 +6,32 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  // إعداد نص الاتصال بقاعدة البيانات مع تفعيل SSL لـ Neon
+  // إعداد الاتصال بقاعدة البيانات
   const baseConnectionString = process.env.DATABASE_URL;
+  if (!baseConnectionString) {
+    return res.status(500).json({ error: 'DATABASE_URL غير معرف في متغيرات البيئة' });
+  }
+
   const separator = baseConnectionString.includes('?') ? '&' : '?';
   const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
 
   const client = new pg.Client({
     connectionString: finalConnectionString,
-    ssl: { 
-      rejectUnauthorized: false 
-    }
+    ssl: { rejectUnauthorized: false }
   });
 
   try {
-    // استخراج المدخلات من واجهة المستخدم (بما فيها اسم الشركة)
-    const { name, companyName, email, password, phone } = req.body;
+    // التأكد من قراءة req.body سواء كان كائن أو النص المفرغ
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    
+    // استخراج المدخلات مع دعم التسميتين (camelCase و snake_case)
+    const name = body.name;
+    const companyName = body.companyName || body.company_name;
+    const email = body.email;
+    const password = body.password;
+    const phone = body.phone;
 
-    // التحقق من وجود الحقول الأساسية المطلوبة بالتسجيل
+    // التحقق من وجود الحقول الأساسية المطلوبة
     if (!name || !companyName || !email || !password) {
       return res.status(400).json({ 
         error: 'يرجى ملء جميع الحقول الأساسية (الاسم، اسم الشركة، البريد، كلمة المرور)' 
@@ -34,7 +43,7 @@ export default async function handler(req, res) {
     // الاتصال بقاعدة البيانات
     await client.connect();
 
-    // 1. التأكد التلقائي من تواجد الجدول وهيكليته الصحيحة داخل قاعدة البيانات
+    // 1. إنشاء الجدول إن لم يكن موجوداً
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS app_users (
         id VARCHAR(50) PRIMARY KEY,
@@ -51,7 +60,7 @@ export default async function handler(req, res) {
     await client.query(createTableQuery);
 
     // 2. التحقق مما إذا كان البريد الإلكتروني مسجلاً مسبقاً
-    const checkUserQuery = 'select id from app_users where lower(email) = $1 limit 1';
+    const checkUserQuery = 'SELECT id FROM app_users WHERE LOWER(email) = $1 LIMIT 1';
     const checkResult = await client.query(checkUserQuery, [cleanEmail]);
 
     if (checkResult.rows.length > 0) {
@@ -63,16 +72,16 @@ export default async function handler(req, res) {
     const isAdmin = cleanEmail === 'admin@debts.dz';
     const createdAt = new Date().toISOString();
 
-    // 4. استعلام إدخال الحساب الجديد شاملاً عمود اسم الشركة (company_name)
+    // 4. إدراج الحساب الجديد
     const insertQuery = `
-      insert into app_users (id, name, company_name, email, password, phone, is_admin, active, created_at)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO app_users (id, name, company_name, email, password, phone, is_admin, active, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `;
     
     await client.query(insertQuery, [
       userId, 
       name, 
-      companyName, // القيمة الجديدة القادمة من الواجهة
+      companyName, 
       cleanEmail, 
       password, 
       phone || '', 
@@ -81,7 +90,6 @@ export default async function handler(req, res) {
       createdAt
     ]);
 
-    // إرجاع استجابة النجاح
     return res.status(200).json({
       message: 'تم إنشاء الحساب بنجاح عبر الـ API',
       userId: userId
@@ -91,7 +99,7 @@ export default async function handler(req, res) {
     console.error('Registration API Error:', error);
     return res.status(500).json({ error: 'حدث خطأ في الخادم أثناء إنشاء الحساب، يرجى المحاولة لاحقاً' });
   } finally {
-    // إغلاق الاتصال بأمان
+    // إغلاق الاتصال دائماً في النهاية
     await client.end().catch(err => console.error('Error closing client:', err));
   }
 }
