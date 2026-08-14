@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- منع حركة المرور عبر HTTP للنطاق المحدد -->
     <domain-config cleartextTrafficPermitted="false">
-        <!-- ضع هنا نطاق سيرفرك على فيرسل بدون https:// -->
-        <domain includeSubdomains="true">your-app-name.vercel.app</domain>
+        <domain includeSubdomains="true">nawh-ai25.vercel.app</domain>
         <trust-anchors>
             <certificates src="system" />
+            <!-- الخيار التالي مفيد إذا كنت تستخدم شهادات مخصصة أو للبيئة التطويرية -->
             <certificates src="user" />
         </trust-anchors>
     </domain-config>
