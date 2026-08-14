@@ -47,8 +47,8 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      # 6. حقن ملفات الهوية والميزات (Firebase, App Identity, Start.io)
-      - name: 6. Inject Firebase, App Identity & Ad Network (Start.io)
+      # 6. حقن ملفات الهوية والميزات وإعدادات الأمان (Firebase, App Identity, Start.io & Security Config)
+      - name: 6. Inject Firebase, App Identity, Ad Network & Security Config
         shell: bash
         run: |
           # حقن ملف جوجل وتعديل الـ package_name إلى المعرّف الخاص بنا
@@ -83,6 +83,27 @@ jobs:
           sed -i 's/namespace ".*"/namespace "com.mydept.app"/' $APP_GRADLE
           sed -i 's/applicationId ".*"/applicationId "com.mydept.app"/' $APP_GRADLE
           
+          # منع النسخ الاحتياطي لبيانات التطبيق لحماية سجلات الديون
+          sed -i 's/<application /&android:allowBackup="false" /' $MANIFEST
+
+          # إنشاء ملف أمان الشبكة لفرض HTTPS على دومين Vercel الخاص بك
+          mkdir -p android/app/src/main/res/xml
+          cat <<EOF > android/app/src/main/res/xml/network_security_config.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <network-security-config>
+              <domain-config cleartextTrafficPermitted="false">
+                  <domain includeSubdomains="true">nawh-ai25.vercel.app</domain>
+                  <trust-anchors>
+                      <certificates src="system" />
+                      <certificates src="user" />
+                  </trust-anchors>
+              </domain-config>
+          </network-security-config>
+          EOF
+
+          # ربط ملف أمان الشبكة بملف الـ Manifest
+          sed -i 's/<application /&android:networkSecurityConfig="@xml\/network_security_config" /' $MANIFEST
+
           # إضافة الأذونات اللازمة (الإنترنت، الإشعارات، التسجيل)
           sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />' $MANIFEST
 
