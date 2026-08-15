@@ -1,12 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- منع حركة المرور عبر HTTP للنطاق المحدد -->
-    <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">nawh-ai25.vercel.app</domain>
+    <!-- تطبيق إعدادات الأمان الافتراضية لمنع الحركة غير المشفرة cleartext traffic -->
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
-            <!-- الخيار التالي مفيد إذا كنت تستخدم شهادات مخصصة أو للبيئة التطويرية -->
             <certificates src="user" />
         </trust-anchors>
+    </base-config>
+
+    <!-- السماح بنطاق Vercel وجميع النطاقات الفرعية التابعة له -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">nawh-ai25.vercel.app</domain>
+    </domain-config>
+
+    <!-- السماح بنطاق Neon Database لتنفيذ استعلامات SQL عبر HTTP -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">neon.tech</domain>
     </domain-config>
 </network-security-config>
