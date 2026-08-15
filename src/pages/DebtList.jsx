@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { useNavigate } from 'react-router-dom';
+import { deleteDebt } from '../services/neonService'; // استدعاء دالة الحذف
 import {
   TrendingUp,
   TrendingDown,
@@ -16,7 +17,8 @@ import {
   DollarSign,
   ArrowLeft,
   X,
-  SortAsc
+  SortAsc,
+  Trash2 // تم إضافة أيقونة الحذف
 } from 'lucide-react';
 
 /**
@@ -25,7 +27,7 @@ import {
  * Integrates with WhatsApp for quick reminders
  */
 export default function DebtList() {
-  const { t, debts, language, openWhatsApp, darkMode } = useApp();
+  const { t, debts, language, openWhatsApp, darkMode, currentUser, refreshDebts } = useApp();
   const navigate = useNavigate();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,6 +105,24 @@ export default function DebtList() {
     e.stopPropagation();
     const message = `${t('whatsappGreeting')}\n\n${t('whatsappBody')}\n${t('personName')}: ${debt.personName}\n${t('amount')}: ${formatCurrency(debt.amount, debt.currency)}\n${t('dueDate')}: ${formatDate(debt.dueDate)}${debt.notes ? '\n\n' + t('notes') + ': ' + debt.notes : ''}\n\n${t('whatsappClosing')}`;
     openWhatsApp(debt.phone || '', message);
+  };
+
+  // دالة التعامل مع حذف الدين عند الضغط على الزر
+  const handleDeleteDebt = async (e, debt) => {
+    e.stopPropagation(); // منع الانتقال لصفحة تفاصيل الدين
+    const confirmMessage = language === 'ar' 
+      ? `هل أنت تأكد من رغبتك في حذف دين "${debt.personName}"؟` 
+      : 'Are you sure you want to delete this debt?';
+      
+    if (window.confirm(confirmMessage)) {
+      try {
+        const userId = currentUser?.id || 'guest';
+        await deleteDebt(userId, debt.id, debt.companyName || '');
+        if (refreshDebts) refreshDebts(); // تحديث الحالة إذا كانت متوفرة في AppContext
+      } catch (error) {
+        console.error('Error deleting debt:', error);
+      }
+    }
   };
 
   // Calculate totals
@@ -282,7 +302,7 @@ export default function DebtList() {
                         )}
                       </div>
 
-                      {/* Quick Actions */}
+                      {/* Quick Actions & Delete Button */}
                       <div className="flex items-center gap-1">
                         {debt.phone && (
                           <>
@@ -303,6 +323,15 @@ export default function DebtList() {
                             </a>
                           </>
                         )}
+                        
+                        {/* زر الحذف الأيقوني لكل دين */}
+                        <button
+                          onClick={(e) => handleDeleteDebt(e, debt)}
+                          className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition"
+                          title="حذف الدين"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
                       </div>
                     </div>
                   </div>
