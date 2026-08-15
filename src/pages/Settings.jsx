@@ -93,12 +93,11 @@ export default function Settings() {
     navigate('/');
   };
 
-  // تصفية الديون غير المسددة
-  const pendingDebts = (debts || []).filter(d => d.status !== 'paid');
-
   // دالة إنشاء وتحميل ملف PDF حقيقي من قاعدة البيانات للعملاء الذين عليهم ديون غير مسددة
   const handleDownloadPDF = () => {
     try {
+      const pendingDebts = (debts || []).filter(d => d.status !== 'paid');
+
       if (pendingDebts.length === 0) {
         showNotification(
           language === 'ar' ? 'لا توجد ديون غير مسددة لتصديرها' : 'No pending debts found to export',
@@ -400,15 +399,15 @@ export default function Settings() {
           </button>
         </div>
 
-        {/* Debts Table & PDF Export Section */}
+        {/* PDF Export Section Only */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden p-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-gray-700">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h3 className="font-bold text-gray-900 dark:text-white text-lg text-start">
-                {language === 'ar' ? 'جدول الديون غير المسددة' : language === 'fr' ? 'Tableau des dettes non payées' : 'Pending Debts Table'}
+                {language === 'ar' ? 'تصدير تقرير الديون' : language === 'fr' ? 'Exporter le rapport des dettes' : 'Export Debts Report'}
               </h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 text-start">
-                {language === 'ar' ? 'عرض كافة الديون الحالية وإمكانية تحميلها كملف PDF' : language === 'fr' ? 'Afficher les dettes actuelles et les télécharger' : 'View pending debts and download as PDF'}
+                {language === 'ar' ? 'تصدير كافة الديون غير المسددة كملف PDF' : language === 'fr' ? 'Télécharger les dettes non payées sous forme de PDF' : 'Download all pending debts as PDF'}
               </p>
             </div>
 
@@ -419,67 +418,6 @@ export default function Settings() {
               <Download className="w-5 h-5" />
               <span>{language === 'ar' ? 'تحميل جدول PDF' : language === 'fr' ? 'Télécharger PDF' : 'Download PDF'}</span>
             </button>
-          </div>
-
-          {/* Data Table */}
-          <div className="mt-4 overflow-x-auto">
-            {pendingDebts.length > 0 ? (
-              <table className="w-full text-start border-collapse">
-                <thead>
-                  <tr className="bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 text-sm">
-                    <th className="p-3 text-start border-b dark:border-gray-700">
-                      {language === 'ar' ? 'اسم العميل' : 'Customer'}
-                    </th>
-                    <th className="p-3 text-start border-b dark:border-gray-700">
-                      {language === 'ar' ? 'نوع الدين' : 'Type'}
-                    </th>
-                    <th className="p-3 text-start border-b dark:border-gray-700">
-                      {language === 'ar' ? 'المبلغ' : 'Amount'}
-                    </th>
-                    <th className="p-3 text-start border-b dark:border-gray-700">
-                      {language === 'ar' ? 'تاريخ الاستحقاق' : 'Due Date'}
-                    </th>
-                    <th className="p-3 text-start border-b dark:border-gray-700">
-                      {language === 'ar' ? 'الملاحظات' : 'Notes'}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-gray-700 text-sm">
-                  {pendingDebts.map((debt, index) => (
-                    <tr key={debt.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
-                      <td className="p-3 font-semibold text-gray-900 dark:text-white">
-                        {debt.personName}
-                      </td>
-                      <td className="p-3">
-                        <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${
-                          debt.type === 'owed_to_me'
-                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                            : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
-                        }`}>
-                          {debt.type === 'owed_to_me' 
-                            ? (language === 'ar' ? 'له (مستحق)' : 'Owed to me') 
-                            : (language === 'ar' ? 'عليه (مطلوب)' : 'I owe')}
-                        </span>
-                      </td>
-                      <td className="p-3 font-bold text-emerald-600 dark:text-emerald-400">
-                        {debt.amount} {debt.currency || 'DZD'}
-                      </td>
-                      <td className="p-3 text-gray-500 dark:text-gray-400">
-                        {new Date(debt.dueDate).toLocaleDateString()}
-                      </td>
-                      <td className="p-3 text-gray-500 dark:text-gray-400">
-                        {debt.notes || '-'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="py-8 text-center text-gray-500 dark:text-gray-400">
-                <FileText className="w-12 h-12 mx-auto mb-2 opacity-40" />
-                <p>{language === 'ar' ? 'لا توجد ديون غير مسددة حالياً' : 'No pending debts found'}</p>
-              </div>
-            )}
           </div>
         </div>
 
