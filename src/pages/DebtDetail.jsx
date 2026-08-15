@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -14,7 +15,8 @@ import {
   FileText,
   DollarSign,
   Share2,
-  Copy
+  Copy,
+  PlusCircle
 } from 'lucide-react';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
@@ -27,6 +29,8 @@ export default function DebtDetail() {
   const { t, debts, updateDebt, language, openWhatsApp, showNotification } = useApp();
   const navigate = useNavigate();
   const { id } = useParams();
+
+  const [paymentAmount, setPaymentAmount] = useState('');
 
   const debt = debts.find(d => d.id === id);
 
@@ -135,6 +139,55 @@ export default function DebtDetail() {
     }
   };
 
+  // دالة التعامل مع إضافة قسط تسديد وخصمه من الأصل
+  const handleAddPayment = async (e) => {
+    e.preventDefault();
+    const parsedPayment = parseFloat(paymentAmount);
+
+    if (isNaN(parsedPayment) || parsedPayment <= 0) {
+      showNotification(
+        language === 'ar' ? 'يرجى إدخال مبلغ قسط صحيح' : 'Please enter a valid payment amount',
+        'error'
+      );
+      return;
+    }
+
+    if (parsedPayment > debt.amount) {
+      showNotification(
+        language === 'ar' ? 'المبلغ المدخل أكبر من أصل الدين الحالي' : 'Payment amount exceeds current debt amount',
+        'error'
+      );
+      return;
+    }
+
+    const newAmount = debt.amount - parsedPayment;
+    const isFullyPaid = newAmount <= 0;
+
+    try {
+      await updateDebt(debt.id, {
+        amount: newAmount,
+        status: isFullyPaid ? 'paid' : debt.status
+      });
+
+      setPaymentAmount('');
+
+      const successMsg = language === 'ar'
+        ? `تم خصم قسط بقيمة ${formatCurrency(parsedPayment, debt.currency)} بنجاح.`
+        : `Successfully deducted payment of ${formatCurrency(parsedPayment, debt.currency)}.`;
+      
+      showNotification(successMsg, 'success');
+
+      const notifTitle = language === 'ar' ? 'تسديد قسط' : 'Partial Payment Made';
+      const notifBody = language === 'ar'
+        ? `تم خصم ${formatCurrency(parsedPayment, debt.currency)} من دين ${debt.personName}. المتبقي: ${formatCurrency(newAmount, debt.currency)}`
+        : `Deducted ${formatCurrency(parsedPayment, debt.currency)} from ${debt.personName}. Remaining: ${formatCurrency(newAmount, debt.currency)}`;
+
+      sendLocalNotification(notifTitle, notifBody);
+    } catch (error) {
+      showNotification(error.message, 'error');
+    }
+  };
+
   // Copy debt details
   const handleCopy = () => {
     const text = `${t('personName')}: ${debt.personName}\n${t('amount')}: ${formatCurrency(debt.amount, debt.currency)}\n${t('dueDate')}: ${formatDate(debt.dueDate)}\n${t('status')}: ${debt.status === 'paid' ? t('paid') : t('pending')}${debt.notes ? '\n' + t('notes') + ': ' + debt.notes : ''}`;
@@ -199,6 +252,34 @@ export default function DebtDetail() {
 
       {/* Details Cards */}
       <div className="p-4 space-y-4 -mt-4">
+        {/* Payment Input Card */}
+        {debt.status !== 'paid' && (
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg">
+            <h3 className="font-bold text-gray-900 dark:text-white text-md mb-3 flex items-center gap-2">
+              <PlusCircle className="w-5 h-5 text-emerald-500" />
+              {language === 'ar' ? 'إضافة قسط تسديد' : language === 'fr' ? 'Ajouter un paiement' : 'Add Installment Payment'}
+            </h3>
+            <form onSubmit={handleAddPayment} className="flex gap-2">
+              <input
+                type="number"
+                step="any"
+                min="0.01"
+                max={debt.amount}
+                placeholder={language === 'ar' ? 'مبلغ القسط...' : 'Installment amount...'}
+                value={paymentAmount}
+                onChange={(e) => setPaymentAmount(e.target.value)}
+                className="flex-1 px-4 py-3 rounded-xl bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition"
+              />
+              <button
+                type="submit"
+                className="px-5 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition shadow-md"
+              >
+                {language === 'ar' ? 'خصم' : language === 'fr' ? 'Déduire' : 'Deduct'}
+              </button>
+            </form>
+          </div>
+        )}
+
         {/* Type Card */}
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-lg">
           <div className="flex items-center gap-4">
