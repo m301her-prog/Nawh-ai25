@@ -4,7 +4,7 @@ export default async function handler(request, response) {
     // 1. إعدادات CORS الكاملة والمطابقة لكود الحفظ لتسهيل اتصال الهاتف والـ WebView
     response.setHeader('Access-Control-Allow-Credentials', true);
     response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
     response.setHeader(
         'Access-Control-Allow-Headers',
         'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-tenant-schema'
@@ -12,12 +12,17 @@ export default async function handler(request, response) {
 
     if (request.method === 'OPTIONS') return response.status(200).end();
     
-    if (request.method !== 'GET') {
+    // دعم GET و POST لمنع حدوث تعارض حسب طريقة الاستدعاء من Capacitor/Fetch
+    if (request.method !== 'GET' && request.method !== 'POST') {
         return response.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
 
-    // 2. ضبط الاتصال بـ Postgres (Neon) بنفس الطريقة الآمنة
+    // 2. ضبط الاتصال بـ Postgres (Neon)
     const baseConnectionString = process.env.DATABASE_URL;
+    if (!baseConnectionString) {
+        return response.status(500).json({ success: false, error: 'DATABASE_URL غير معرف' });
+    }
+
     const separator = baseConnectionString.includes('?') ? '&' : '?';
     const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
 
@@ -28,24 +33,24 @@ export default async function handler(request, response) {
         }
     });
 
-    // استقبال اسم السكيمّا من الهيدر (يُرسل تلقائياً من الـ Context بالفرونت اند ليمثل الشركة)
-    const targetSchema = request.headers['x-tenant-schema'];
+    // استقبال اسم السكيمّا من الهيدر أو من الـ Body في حال طلبات POST
+    const body = typeof request.body === 'string' ? JSON.parse(request.body || '{}') : (request.body || {});
+    const targetSchema = request.headers['x-tenant-schema'] || body.schemaName || (body.userId ? `tenant_${body.userId}` : null);
 
     try {
         await client.connect();
         
-        // 3. عزل مسار البيانات وتفعيل السكيمّا الخاصة بالعميل/الشركة تلقائياً في جلب البيانات
+        // 3. عزل مسار البيانات وتفعيل السكيمّا الخاصة بالشركة تلقائياً
         if (targetSchema) {
             const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
             await client.query(`SET search_path TO "${cleanSchema}", public`);
         }
 
-        // 4. استعلام جلب الديون من جدول debts الموحد
-        // تم إلغاء شرط الـ user_id والاعتماد على عزل السكيمّا للشركة بالكامل بناءً على كود الحفظ
+        // 4. استعلام جلب الديون من جدول debts
         const debtsQuery = 'SELECT * FROM debts ORDER BY id DESC';
         const result = await client.query(debtsQuery);
 
-        // 5. تحويل مسميات الأعمدة الـ Snake Case إلى Camel Case لتتوافق بدقة مع الـ Frontend وكود الحفظ
+        // 5. تحويل مسميات الأعمدة الـ Snake Case إلى Camel Case لتتوافق بدقة مع الـ Frontend
         const formattedDebts = result.rows.map(row => ({
             id: row.id,
             type: row.type,                  // 'owed_to_me' أو 'i_owe'
@@ -62,7 +67,7 @@ export default async function handler(request, response) {
             firstPaymentDate: row.first_payment_date
         }));
 
-        // إرجاع النتيجة بالصيغة الصحيحة المتوافقة مع كائن الـ Context
+        // إرجاع النتيجة بالصيغة الصحيحة
         return response.status(200).json({ 
             success: true, 
             debts: formattedDebts 
@@ -70,6 +75,16 @@ export default async function handler(request, response) {
 
     } catch (error) {
         console.error('DATABASE ERROR ON GET:', error);
+
+        // معالجة خطأ عدم وجود الجدول أو السكيمّا (42P01 / 3F000) وإرجاع مصفوفة فارغة بدون انهيار التطبيق
+        if (error.code === '42P01' || error.code === '3F000') {
+            return response.status(200).json({
+                success: true,
+                debts: [],
+                message: 'No records found for this tenant yet'
+            });
+        }
+
         return response.status(500).json({ 
             success: false, 
             error: 'فشل في جلب البيانات: ' + error.message 
