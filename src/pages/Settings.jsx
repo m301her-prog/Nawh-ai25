@@ -17,18 +17,23 @@ import {
   HelpCircle,
   Download,
   FileText,
-  FileSpreadsheet
+  FileSpreadsheet,
+  FileType
 } from 'lucide-react';
-import { LocalNotifications } from '@capacitor/local-notifications'; // استيراد حزمة الإشعارات المحلية بشكل مباشر
+import { LocalNotifications } from '@capacitor/local-notifications';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 /**
  * Settings Page
  * Dark mode, language switching, notifications control, account settings
+ * Real PDF generation from database for cash clients with outstanding debts
  */
 export default function Settings() {
   const {
     t,
     user,
+    debts,
     darkMode,
     setDarkMode,
     language,
@@ -47,14 +52,12 @@ export default function Settings() {
 
   const handleNotificationToggle = async () => {
     if (!notificationsEnabled) {
-      // طلب الإذن الفعلي من نظام أندرويد عبر الـ Context
       const granted = await requestNotificationPermission();
       if (granted) {
         setNotificationsEnabled(true);
         showNotification(t('enableNotifications'), 'success');
 
         try {
-          // فحص بيئة العمل وجدولة الإشعار التجريبي المحلي فوراً
           const hasPermission = await LocalNotifications.checkPermissions();
           if (hasPermission.display === 'granted') {
             await LocalNotifications.schedule({
@@ -78,8 +81,11 @@ export default function Settings() {
           console.error('Error scheduling local notification:', error);
         }
       } else {
-        showNotification(language === 'ar' ? 'ما قدرناش نفعّلو الإشعارات' :
-                        language === 'fr' ? 'Autorisation refusée' : 'Permission denied', 'error');
+        showNotification(
+          language === 'ar' ? 'ما قدرناش نفعّلو الإشعارات' :
+          language === 'fr' ? 'Autorisation refusée' : 'Permission denied', 
+          'error'
+        );
       }
     } else {
       setNotificationsEnabled(false);
@@ -91,13 +97,92 @@ export default function Settings() {
     navigate('/');
   };
 
+  // دالة إنشاء وتحميل ملف PDF حقيقي من قاعدة البيانات للعملاء الذين عليهم ديون غير مسددة
+  const handleDownloadPDF = () => {
+    try {
+      // تصفية الديون غير المسددة فقط من البيانات الحالية القادمة من قاعدة البيانات عبر الـ AppContext
+      const pendingDebts = (debts || []).filter(d => d.status !== 'paid');
+
+      if (pendingDebts.length === 0) {
+        showNotification(
+          language === 'ar' ? 'لا توجد ديون غير مسددة لتصديرها' : 'No pending debts found to export',
+          'error'
+        );
+        return;
+      }
+
+      const doc = new jsPDF({
+        orientation: 'p',
+        unit: 'mm',
+        format: 'a4'
+      });
+
+      const isAr = language === 'ar';
+      const title = isAr ? 'تقرير ديون العملاء غير المسددة' : 'Outstanding Debts Report';
+      const dateStr = new Date().toLocaleDateString();
+
+      // عنوان التقرير
+      doc.setFontSize(18);
+      doc.text(title, 105, 15, { align: 'center' });
+      doc.setFontSize(10);
+      doc.text(`${isAr ? 'التاريخ' : 'Date'}: ${dateStr}`, 105, 22, { align: 'center' });
+
+      // تحضير أعمدة وصفوف الجدول
+      const tableColumn = isAr 
+        ? ['الملاحظات', 'تاريخ الاستحقاق', 'المبلغ', 'نوع الدين', 'اسم العميل']
+        : ['Customer Name', 'Debt Type', 'Amount', 'Due Date', 'Notes'];
+
+      const tableRows = pendingDebts.map(debt => {
+        const typeLabel = debt.type === 'owed_to_me' 
+          ? (isAr ? 'له (مستحق)' : 'Owed to me') 
+          : (isAr ? 'عليه (مطلوب)' : 'I owe');
+          
+        return isAr ? [
+          debt.notes || '-',
+          new Date(debt.dueDate).toLocaleDateString(),
+          `${debt.amount} ${debt.currency || 'DZD'}`,
+          typeLabel,
+          debt.personName
+        ] : [
+          debt.personName,
+          typeLabel,
+          `${debt.amount} ${debt.currency || 'DZD'}`,
+          new Date(debt.dueDate).toLocaleDateString(),
+          debt.notes || '-'
+        ];
+      });
+
+      // رسم الجدول بالبيانات المجلوبة
+      doc.autoTable({
+        head: [tableColumn],
+        body: tableRows,
+        startY: 30,
+        styles: { halign: isAr ? 'right' : 'left', fontStyle: 'bold' },
+        headStyles: { fillColor: [16, 185, 129] } // لون زمردي متناسق مع الواجهة
+      });
+
+      // حفظ وتحميل ملف الـ PDF
+      doc.save(`debts_report_${Date.now()}.pdf`);
+
+      showNotification(
+        isAr ? 'تم تحميل تقرير PDF بنجاح' : 'PDF report downloaded successfully',
+        'success'
+      );
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      showNotification(
+        language === 'ar' ? 'حدث خطأ أثناء إنشاء ملف PDF' : 'Error generating PDF file',
+        'error'
+      );
+    }
+  };
+
   const languages = [
     { code: 'ar', name: language === 'ar' ? 'العربية' : 'Arabic', flag: '🇸🇦', subtitle: language === 'ar' ? 'مرحباً بك!' : 'Marhaba!' },
     { code: 'fr', name: t('french'), flag: '🇫🇷', subtitle: 'Bonjour!' },
     { code: 'en', name: t('english'), flag: '🇬🇧', subtitle: 'Hello!' }
   ];
 
-  // تحديد اتجاه المحاذاة بناءً على اللغة الحالية لتعمل الأزرار بشكل طبيعي
   const isRtl = language === 'ar';
 
   return (
@@ -340,7 +425,7 @@ export default function Settings() {
                 {language === 'ar' ? 'تحميل وصلات وكشوفات الديون' : language === 'fr' ? 'Telecharger les rapports' : 'Download Debt Reports'}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {language === 'ar' ? 'تصدير TXT أو CSV' : language === 'fr' ? 'Exporter en TXT ou CSV' : 'Export as TXT or CSV'}
+                {language === 'ar' ? 'تصدير PDF أو TXT أو CSV' : language === 'fr' ? 'Exporter en PDF, TXT ou CSV' : 'Export as PDF, TXT or CSV'}
               </p>
             </div>
             {isRtl ? <ChevronLeft className="w-5 h-5 text-gray-400" /> : <ChevronRight className="w-5 h-5 text-gray-400" />}
@@ -399,6 +484,26 @@ export default function Settings() {
             </div>
 
             <div className="space-y-3 mb-6">
+              {/* PDF Format Option */}
+              <button
+                onClick={() => {
+                  handleDownloadPDF();
+                  setShowFormatModal(false);
+                }}
+                className="w-full p-4 rounded-xl bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition flex items-center gap-4"
+              >
+                <div className="w-12 h-12 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                  <FileType className="w-6 h-6 text-red-500" />
+                </div>
+                <div className="flex-1 text-start">
+                  <p className="font-bold text-gray-900 dark:text-white">PDF</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {language === 'ar' ? 'تقرير ديون العملاء غير المسددة' : language === 'fr' ? 'Rapport PDF des dettes' : 'Pending debts PDF report'}
+                  </p>
+                </div>
+                <Download className="w-5 h-5 text-gray-400" />
+              </button>
+
               {/* TXT Format */}
               <button
                 onClick={() => {
