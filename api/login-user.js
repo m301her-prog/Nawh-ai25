@@ -40,8 +40,8 @@ export default async function handler(req, res) {
 
     await client.connect();
 
-    // 3. تأمين مسار الاستعلام بالإشارة لـ public.app_users مباشرة لإنهاء مشكلة خطأ الـ relation
-    const loginQuery = 'SELECT id, name, email, password, phone, is_admin, active FROM public.app_users WHERE LOWER(email) = $1 LIMIT 1';
+    // 3. جلب بيانات المستخدم مع company_name لبناء اسم الـ Schema
+    const loginQuery = 'SELECT id, name, company_name, email, password, phone, is_admin, active FROM public.app_users WHERE LOWER(email) = $1 LIMIT 1';
     const result = await client.query(loginQuery, [cleanEmail]);
 
     if (result.rows.length === 0) {
@@ -54,12 +54,24 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'البريد الإلكتروني أو كلمة المرور غير صحيحة' });
     }
 
-    // 4. إرجاع البيانات بالأسماء المطلوبة للفرونت إند
+    // 4. استخراج اسم الـ Schema وتنسيقه ليكون ببادئة schema_ مطابقاً للوحة Neon
+    const rawCompany = dbUser.company_name || '';
+    let cleanCompany = rawCompany.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+
+    if (cleanCompany.startsWith('schema_')) {
+      cleanCompany = cleanCompany.replace('schema_', '');
+    }
+
+    const tenantSchema = cleanCompany ? `schema_${cleanCompany}` : 'public';
+
+    // 5. إرجاع البيانات بالأسماء المطلوبة للفرونت إند شاملة tenantSchema
     return res.status(200).json({
       message: 'تم تسجيل الدخول بنجاح',
+      tenantSchema: tenantSchema, // يُرجع مثلاً: schema_lil
       user: {
         id: dbUser.id,
         name: dbUser.name,
+        companyName: dbUser.company_name || '',
         email: dbUser.email,
         phone: dbUser.phone || '',
         isAdmin: dbUser.is_admin === true || dbUser.is_admin === 'true',
