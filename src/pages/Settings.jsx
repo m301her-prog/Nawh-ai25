@@ -16,9 +16,7 @@ import {
   User,
   HelpCircle,
   Download,
-  FileText,
-  FileSpreadsheet,
-  FileType
+  FileText
 } from 'lucide-react';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import jsPDF from 'jspdf';
@@ -44,11 +42,9 @@ export default function Settings() {
     setWhatsappEnabled,
     logout,
     requestNotificationPermission,
-    showNotification,
-    downloadReport
+    showNotification
   } = useApp();
   const navigate = useNavigate();
-  const [showFormatModal, setShowFormatModal] = useState(false);
 
   const handleNotificationToggle = async () => {
     if (!notificationsEnabled) {
@@ -97,12 +93,12 @@ export default function Settings() {
     navigate('/');
   };
 
+  // تصفية الديون غير المسددة
+  const pendingDebts = (debts || []).filter(d => d.status !== 'paid');
+
   // دالة إنشاء وتحميل ملف PDF حقيقي من قاعدة البيانات للعملاء الذين عليهم ديون غير مسددة
   const handleDownloadPDF = () => {
     try {
-      // تصفية الديون غير المسددة فقط من البيانات الحالية القادمة من قاعدة البيانات عبر الـ AppContext
-      const pendingDebts = (debts || []).filter(d => d.status !== 'paid');
-
       if (pendingDebts.length === 0) {
         showNotification(
           language === 'ar' ? 'لا توجد ديون غير مسددة لتصديرها' : 'No pending debts found to export',
@@ -404,32 +400,87 @@ export default function Settings() {
           </button>
         </div>
 
-        {/* Download Reports Section */}
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h3 className="font-bold text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider text-start">
-              {language === 'ar' ? 'التقارير والتصدير' : language === 'fr' ? 'Rapports et export' : 'Reports & Export'}
-            </h3>
+        {/* Debts Table & PDF Export Section */}
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-gray-700">
+            <div>
+              <h3 className="font-bold text-gray-900 dark:text-white text-lg text-start">
+                {language === 'ar' ? 'جدول الديون غير المسددة' : language === 'fr' ? 'Tableau des dettes non payées' : 'Pending Debts Table'}
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-start">
+                {language === 'ar' ? 'عرض كافة الديون الحالية وإمكانية تحميلها كملف PDF' : language === 'fr' ? 'Afficher les dettes actuelles et les télécharger' : 'View pending debts and download as PDF'}
+              </p>
+            </div>
+
+            <button
+              onClick={handleDownloadPDF}
+              className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold transition shadow-md hover:shadow-lg active:scale-95"
+            >
+              <Download className="w-5 h-5" />
+              <span>{language === 'ar' ? 'تحميل جدول PDF' : language === 'fr' ? 'Télécharger PDF' : 'Download PDF'}</span>
+            </button>
           </div>
 
-          {/* Download Reports Button */}
-          <button
-            onClick={() => setShowFormatModal(true)}
-            className="w-full px-5 py-4 flex items-center gap-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
-          >
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
-              <Download className="w-6 h-6 text-blue-500" />
-            </div>
-            <div className="flex-1 text-start">
-              <p className="font-bold text-gray-900 dark:text-white">
-                {language === 'ar' ? 'تحميل وصلات وكشوفات الديون' : language === 'fr' ? 'Telecharger les rapports' : 'Download Debt Reports'}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                {language === 'ar' ? 'تصدير PDF أو TXT أو CSV' : language === 'fr' ? 'Exporter en PDF, TXT ou CSV' : 'Export as PDF, TXT or CSV'}
-              </p>
-            </div>
-            {isRtl ? <ChevronLeft className="w-5 h-5 text-gray-400" /> : <ChevronRight className="w-5 h-5 text-gray-400" />}
-          </button>
+          {/* Data Table */}
+          <div className="mt-4 overflow-x-auto">
+            {pendingDebts.length > 0 ? (
+              <table className="w-full text-start border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 text-sm">
+                    <th className="p-3 text-start border-b dark:border-gray-700">
+                      {language === 'ar' ? 'اسم العميل' : 'Customer'}
+                    </th>
+                    <th className="p-3 text-start border-b dark:border-gray-700">
+                      {language === 'ar' ? 'نوع الدين' : 'Type'}
+                    </th>
+                    <th className="p-3 text-start border-b dark:border-gray-700">
+                      {language === 'ar' ? 'المبلغ' : 'Amount'}
+                    </th>
+                    <th className="p-3 text-start border-b dark:border-gray-700">
+                      {language === 'ar' ? 'تاريخ الاستحقاق' : 'Due Date'}
+                    </th>
+                    <th className="p-3 text-start border-b dark:border-gray-700">
+                      {language === 'ar' ? 'الملاحظات' : 'Notes'}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700 text-sm">
+                  {pendingDebts.map((debt, index) => (
+                    <tr key={debt.id || index} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
+                      <td className="p-3 font-semibold text-gray-900 dark:text-white">
+                        {debt.personName}
+                      </td>
+                      <td className="p-3">
+                        <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${
+                          debt.type === 'owed_to_me'
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                            : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+                        }`}>
+                          {debt.type === 'owed_to_me' 
+                            ? (language === 'ar' ? 'له (مستحق)' : 'Owed to me') 
+                            : (language === 'ar' ? 'عليه (مطلوب)' : 'I owe')}
+                        </span>
+                      </td>
+                      <td className="p-3 font-bold text-emerald-600 dark:text-emerald-400">
+                        {debt.amount} {debt.currency || 'DZD'}
+                      </td>
+                      <td className="p-3 text-gray-500 dark:text-gray-400">
+                        {new Date(debt.dueDate).toLocaleDateString()}
+                      </td>
+                      <td className="p-3 text-gray-500 dark:text-gray-400">
+                        {debt.notes || '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="py-8 text-center text-gray-500 dark:text-gray-400">
+                <FileText className="w-12 h-12 mx-auto mb-2 opacity-40" />
+                <p>{language === 'ar' ? 'لا توجد ديون غير مسددة حالياً' : 'No pending debts found'}</p>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Logout Button */}
@@ -464,104 +515,6 @@ export default function Settings() {
           {t('clearData')}
         </button>
       </div>
-
-      {/* Format Selection Modal */}
-      {showFormatModal && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="flex items-center gap-4 mb-6">
-              <div className="w-14 h-14 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                <Download className="w-7 h-7 text-blue-500" />
-              </div>
-              <div className="text-start">
-                <h3 className="font-bold text-lg text-gray-900 dark:text-white">
-                  {language === 'ar' ? 'تحميل التقرير' : language === 'fr' ? 'Telecharger le rapport' : 'Download Report'}
-                </h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {language === 'ar' ? 'اختر صيغة الملف' : language === 'fr' ? 'Choisir le format' : 'Choose file format'}
-                </p>
-              </div>
-            </div>
-
-            <div className="space-y-3 mb-6">
-              {/* PDF Format Option */}
-              <button
-                onClick={() => {
-                  handleDownloadPDF();
-                  setShowFormatModal(false);
-                }}
-                className="w-full p-4 rounded-xl bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition flex items-center gap-4"
-              >
-                <div className="w-12 h-12 rounded-xl bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                  <FileType className="w-6 h-6 text-red-500" />
-                </div>
-                <div className="flex-1 text-start">
-                  <p className="font-bold text-gray-900 dark:text-white">PDF</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {language === 'ar' ? 'تقرير ديون العملاء غير المسددة' : language === 'fr' ? 'Rapport PDF des dettes' : 'Pending debts PDF report'}
-                  </p>
-                </div>
-                <Download className="w-5 h-5 text-gray-400" />
-              </button>
-
-              {/* TXT Format */}
-              <button
-                onClick={() => {
-                  downloadReport(user.id, language, 'txt');
-                  setShowFormatModal(false);
-                  showNotification(
-                    language === 'ar' ? 'تم تحميل التقرير بصيغة TXT' : language === 'fr' ? 'Rapport TXT telecharge' : 'TXT report downloaded',
-                    'success'
-                  );
-                }}
-                className="w-full p-4 rounded-xl bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition flex items-center gap-4"
-              >
-                <div className="w-12 h-12 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
-                  <FileText className="w-6 h-6 text-emerald-500" />
-                </div>
-                <div className="flex-1 text-start">
-                  <p className="font-bold text-gray-900 dark:text-white">TXT</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {language === 'ar' ? 'ملف نصي بسيط' : language === 'fr' ? 'Fichier texte simple' : 'Simple text file'}
-                  </p>
-                </div>
-                <Download className="w-5 h-5 text-gray-400" />
-              </button>
-
-              {/* CSV Format */}
-              <button
-                onClick={() => {
-                  downloadReport(user.id, language, 'csv');
-                  setShowFormatModal(false);
-                  showNotification(
-                    language === 'ar' ? 'تم تحميل التقرير بصيغة CSV' : language === 'fr' ? 'Rapport CSV telecharge' : 'CSV report downloaded',
-                    'success'
-                  );
-                }}
-                className="w-full p-4 rounded-xl bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition flex items-center gap-4"
-              >
-                <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                  <FileSpreadsheet className="w-6 h-6 text-blue-500" />
-                </div>
-                <div className="flex-1 text-start">
-                  <p className="font-bold text-gray-900 dark:text-white">CSV</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {language === 'ar' ? 'جدول بيانات' : language === 'fr' ? 'Tableur' : 'Spreadsheet format'}
-                  </p>
-                </div>
-                <Download className="w-5 h-5 text-gray-400" />
-              </button>
-            </div>
-
-            <button
-              onClick={() => setShowFormatModal(false)}
-              className="w-full py-3.5 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-            >
-              {t('cancel')}
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
