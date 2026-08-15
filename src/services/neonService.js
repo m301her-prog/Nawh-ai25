@@ -4,7 +4,7 @@
  * Includes Android Capture event triggers for WebView integration
  * Optimized with CapacitorHttp for native cross-platform compatibility
  * Updated: Support for debt scheduling and installments
- * Updated: Integration with Cloud APIs for data sync
+ * Updated: Integration with Cloud APIs for data sync & Delete endpoint
  */
 
 import { CapacitorHttp } from '@capacitor/core';
@@ -14,7 +14,8 @@ const CLOUD_API = {
   registerUser: 'https://nawh-ai25.vercel.app/api/register-user',
   loginUser: 'https://nawh-ai25.vercel.app/api/login-user',
   saveData: 'https://nawh-ai25.vercel.app/save',
-  getData: 'https://nawh-ai25.vercel.app/get'
+  getData: 'https://nawh-ai25.vercel.app/get',
+  deleteData: 'https://nawh-ai25.vercel.app/api/Delete'
 };
 
 // Neon database connection string - set in .env as VITE_NEON_DATABASE_URL
@@ -119,10 +120,8 @@ export const triggerAndroidCapture = (eventType, data) => {
     synced: false
   };
 
-  // Save to localStorage for Android Capture access
   saveCaptureEvent(eventData);
 
-  // Check for Android interface and send capture signal
   if (window.AndroidInterface && typeof window.AndroidInterface.captureEvent === 'function') {
     try {
       window.AndroidInterface.captureEvent(JSON.stringify(eventData));
@@ -132,7 +131,6 @@ export const triggerAndroidCapture = (eventType, data) => {
     }
   }
 
-  // Alternative Android interface names
   if (window.AndroidCapture && typeof window.AndroidCapture.onEvent === 'function') {
     try {
       window.AndroidCapture.onEvent(eventType, JSON.stringify(data));
@@ -141,7 +139,6 @@ export const triggerAndroidCapture = (eventType, data) => {
     }
   }
 
-  // Dispatch custom event for any listeners
   window.dispatchEvent(new CustomEvent('appCapture', {
     detail: eventData
   }));
@@ -162,7 +159,7 @@ const saveCaptureEvent = (eventData) => {
 };
 
 /**
- * Save data to localStorage (primary storage for this implementation)
+ * Save data to localStorage
  */
 export const saveToLocalStorage = (key, data) => {
   try {
@@ -186,23 +183,14 @@ export const loadFromLocalStorage = (key, defaultValue = null) => {
   }
 };
 
-/**
- * Generate unique user ID
- */
 const generateUserId = () => {
   return 'usr_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);
 };
 
-/**
- * Generate unique debt ID
- */
 const generateDebtId = () => {
   return 'debt_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 5);
 };
 
-/**
- * Hash password (simple implementation - in production use bcrypt on server)
- */
 const hashPassword = (password) => {
   let hash = 0;
   for (let i = 0; i < password.length; i++) {
@@ -219,11 +207,6 @@ const hashPassword = (password) => {
  * ============================================
  */
 
-/**
- * Register new user and create dedicated tables
- * Creates: user_{userId}_debts, user_{userId}_activities tables
- * Now includes Cloud API sync for user registration
- */
 export const registerUserAndCreateTables = async (name, email, password, phone) => {
   const users = loadFromLocalStorage('registeredUsers', []);
 
@@ -246,7 +229,6 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
     createdAt: new Date().toISOString()
   };
 
-  // Save to localStorage first (primary storage)
   users.push(newUser);
   saveToLocalStorage('registeredUsers', users);
 
@@ -256,7 +238,6 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
   saveToLocalStorage(userDebtsKey, []);
   saveToLocalStorage(userActivitiesKey, []);
 
-  // Send registration data to Cloud API for Neon sync
   try {
     const cloudResponse = await cloudApiRequest(CLOUD_API.registerUser, 'POST', {
       userId: userId,
@@ -271,7 +252,6 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
     if (cloudResponse && cloudResponse.success) {
       console.log('User registered successfully to Cloud API:', userId);
 
-      // Update local data with any additional data from cloud response
       if (cloudResponse.user) {
         const updatedUser = { ...newUser, ...cloudResponse.user };
         const updatedUsers = loadFromLocalStorage('registeredUsers', []);
@@ -288,7 +268,6 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
     console.warn('Cloud API registration failed, continuing with local:', error.message);
   }
 
-  // Also try Neon direct connection if configured
   if (isNeonConfigured()) {
     try {
       await executeQuery(`
@@ -342,13 +321,9 @@ export const registerUserAndCreateTables = async (name, email, password, phone) 
   return userWithoutPassword;
 };
 
-/**
- * Authenticate user with Cloud API support
- */
 export const authUser = async (email, password) => {
   const hashedPassword = hashPassword(password);
 
-  // Try Cloud API authentication first
   try {
     const cloudResponse = await cloudApiRequest(CLOUD_API.loginUser, 'POST', {
       email: email,
@@ -358,15 +333,11 @@ export const authUser = async (email, password) => {
     if (cloudResponse && cloudResponse.success && cloudResponse.user) {
       console.log('User authenticated via Cloud API:', cloudResponse.user.id);
 
-      // Update local storage with cloud user data
       const cloudUser = cloudResponse.user;
-
-      // Check if user exists locally, if not add them
       const localUsers = loadFromLocalStorage('registeredUsers', []);
       const existingUserIndex = localUsers.findIndex(u => u.email === email);
 
       if (existingUserIndex === -1) {
-        // User not in local storage, add from cloud
         const newLocalUser = {
           id: cloudUser.id,
           name: cloudUser.name,
@@ -381,7 +352,6 @@ export const authUser = async (email, password) => {
         localUsers.push(newLocalUser);
         saveToLocalStorage('registeredUsers', localUsers);
       } else {
-        // Update existing user
         localUsers[existingUserIndex] = {
           ...localUsers[existingUserIndex],
           ...cloudUser,
@@ -391,12 +361,10 @@ export const authUser = async (email, password) => {
         saveToLocalStorage('registeredUsers', localUsers);
       }
 
-      // Fetch and merge debts from cloud
       if (cloudResponse.debts && Array.isArray(cloudResponse.debts)) {
         const userDebtsKey = `user_${cloudUser.id}_debts`;
         const localDebts = loadFromLocalStorage(userDebtsKey, []);
 
-        // Merge cloud debts with local debts (prefer newer updatedAt)
         const mergedDebts = [...localDebts];
         cloudResponse.debts.forEach(cloudDebt => {
           const existingIndex = mergedDebts.findIndex(d => d.id === cloudDebt.id);
@@ -430,7 +398,6 @@ export const authUser = async (email, password) => {
     console.warn('Cloud API login failed, falling back to local:', error.message);
   }
 
-  // Fallback to local authentication
   const users = loadFromLocalStorage('registeredUsers', []);
 
   const user = users.find(u =>
@@ -461,17 +428,11 @@ export const authUser = async (email, password) => {
   return userWithoutPassword;
 };
 
-/**
- * Logout user
- */
 export const logoutUser = async (userId) => {
   logUserActivity(userId, 'USER_LOGOUT', {});
   triggerAndroidCapture('USER_LOGOUT', { userId });
 };
 
-/**
- * Get user by ID
- */
 export const getUserById = (userId) => {
   const users = loadFromLocalStorage('registeredUsers', []);
   const user = users.find(u => u.id === userId);
@@ -488,14 +449,10 @@ export const getUserById = (userId) => {
  * ============================================
  */
 
-/**
- * Fetch all debts for a specific user with Cloud API sync
- */
 export const fetchDebts = (userId) => {
   const userDebtsKey = `user_${userId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
 
-  // Trigger async cloud fetch in background (non-blocking)
   fetchDebtsFromCloud(userId);
 
   return debts.sort((a, b) =>
@@ -503,9 +460,6 @@ export const fetchDebts = (userId) => {
   );
 };
 
-/**
- * Fetch debts from Cloud API (async, non-blocking)
- */
 const fetchDebtsFromCloud = async (userId) => {
   try {
     const cloudResponse = await cloudApiRequest(CLOUD_API.getData, 'POST', {
@@ -518,14 +472,12 @@ const fetchDebtsFromCloud = async (userId) => {
       const userDebtsKey = `user_${userId}_debts`;
       const localDebts = loadFromLocalStorage(userDebtsKey, []);
 
-      // Merge cloud debts with local (prefer newer data)
       const mergedDebts = [...localDebts];
       let hasUpdates = false;
 
       cloudResponse.debts.forEach(cloudDebt => {
         const existingIndex = mergedDebts.findIndex(d => d.id === cloudDebt.id);
         if (existingIndex === -1) {
-          // New debt from cloud
           mergedDebts.push(cloudDebt);
           hasUpdates = true;
         } else {
@@ -551,9 +503,6 @@ const fetchDebtsFromCloud = async (userId) => {
   }
 };
 
-/**
- * Add new debt for user with scheduling support and Cloud API sync
- */
 export const addDebt = async (userId, debtData) => {
   const userDebtsKey = `user_${userId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
@@ -579,11 +528,9 @@ export const addDebt = async (userId, debtData) => {
     updatedAt: new Date().toISOString()
   };
 
-  // Save to localStorage
   debts.push(newDebt);
   saveToLocalStorage(userDebtsKey, debts);
 
-  // Send to Cloud API for Neon sync
   try {
     const cloudResponse = await cloudApiRequest(CLOUD_API.saveData, 'POST', {
       userId: userId,
@@ -594,7 +541,6 @@ export const addDebt = async (userId, debtData) => {
     if (cloudResponse && cloudResponse.success) {
       console.log('Debt saved to Cloud API:', newDebt.id);
 
-      // Update with any server-generated fields if provided
       if (cloudResponse.debt) {
         const updatedDebts = loadFromLocalStorage(userDebtsKey, []);
         const debtIndex = updatedDebts.findIndex(d => d.id === newDebt.id);
@@ -620,7 +566,6 @@ export const addDebt = async (userId, debtData) => {
     debt: newDebt
   });
 
-  // Also try Neon direct connection if configured
   if (isNeonConfigured()) {
     try {
       const tableName = `user_${userId.replace(/-/g, '_')}_debts`;
@@ -643,9 +588,6 @@ export const addDebt = async (userId, debtData) => {
   return newDebt;
 };
 
-/**
- * Update debt status with Cloud API sync
- */
 export const updateDebtStatus = async (userId, debtId, updates) => {
   const userDebtsKey = `user_${userId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
@@ -664,7 +606,6 @@ export const updateDebtStatus = async (userId, debtId, updates) => {
   debts[debtIndex] = updatedDebt;
   saveToLocalStorage(userDebtsKey, debts);
 
-  // Send update to Cloud API
   try {
     const cloudResponse = await cloudApiRequest(CLOUD_API.saveData, 'POST', {
       userId: userId,
@@ -695,16 +636,43 @@ export const updateDebtStatus = async (userId, debtId, updates) => {
 };
 
 /**
- * Delete debt with Cloud API sync
+ * Direct Cloud API Delete Handler
+ * Invokes https://nawh-ai25.vercel.app/api/Delete
  */
-export const deleteDebt = async (userId, debtId) => {
+export const deleteDataFromCloud = async (debtId, companyName = '') => {
+  try {
+    const response = await cloudApiRequest(CLOUD_API.deleteData, 'POST', {
+      id: debtId,
+      companyName: companyName
+    });
+
+    if (response && response.success) {
+      console.log('Successfully deleted record via Delete API:', debtId);
+      return response;
+    } else {
+      console.warn('Delete API responded with failure:', response);
+      return null;
+    }
+  } catch (error) {
+    console.error('Error in deleteDataFromCloud:', error.message);
+    return null;
+  }
+};
+
+/**
+ * Delete debt with Cloud API sync & Direct Delete endpoint integration
+ */
+export const deleteDebt = async (userId, debtId, companyName = '') => {
   const userDebtsKey = `user_${userId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
 
   const filteredDebts = debts.filter(d => d.id !== debtId);
   saveToLocalStorage(userDebtsKey, filteredDebts);
 
-  // Send delete to Cloud API
+  // 1. Invoke direct Delete Endpoint
+  await deleteDataFromCloud(debtId, companyName);
+
+  // 2. Fallback sync via main saveData endpoint
   try {
     const cloudResponse = await cloudApiRequest(CLOUD_API.saveData, 'POST', {
       userId: userId,
@@ -733,9 +701,6 @@ export const deleteDebt = async (userId, debtId) => {
  * ============================================
  */
 
-/**
- * Generate debt report as formatted string
- */
 export const generateDebtReport = (userId, language = 'ar') => {
   const debts = fetchDebts(userId);
   const stats = calculateStatistics(userId);
@@ -868,9 +833,6 @@ export const generateDebtReport = (userId, language = 'ar') => {
   return report;
 };
 
-/**
- * Export debts as CSV
- */
 export const exportDebtsAsCSV = (userId) => {
   const debts = fetchDebts(userId);
 
@@ -892,9 +854,6 @@ export const exportDebtsAsCSV = (userId) => {
   return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
 };
 
-/**
- * Download report as file
- */
 export const downloadReport = (userId, language = 'ar', format = 'txt') => {
   let content, filename, mimeType;
 
@@ -947,7 +906,6 @@ export const logUserActivity = (userId, action, details) => {
   activities.unshift(newActivity);
   saveToLocalStorage(userActivitiesKey, activities.slice(0, 100));
 
-  // Sync activity to Cloud API
   cloudApiRequest(CLOUD_API.saveData, 'POST', {
     userId: userId,
     action: 'log_activity',
@@ -1014,7 +972,6 @@ export const toggleUserStatus = (userId, active) => {
   );
   saveToLocalStorage('registeredUsers', updatedUsers);
 
-  // Sync to Cloud API
   cloudApiRequest(CLOUD_API.saveData, 'POST', {
     action: 'toggle_user_status',
     userId: userId,
@@ -1032,7 +989,6 @@ export const deleteUser = (userId) => {
   localStorage.removeItem(`user_${userId}_debts`);
   localStorage.removeItem(`user_${userId}_activities`);
 
-  // Sync deletion to Cloud API
   cloudApiRequest(CLOUD_API.saveData, 'POST', {
     action: 'delete_user',
     userId: userId
@@ -1049,114 +1005,31 @@ export const deleteUser = (userId) => {
 
 export const calculateStatistics = (userId) => {
   const debts = fetchDebts(userId);
+  const now = new Date();
 
   const totalOwedToMe = debts
     .filter(d => d.type === 'owed_to_me' && d.status !== 'paid')
-    .reduce((sum, d) => sum + d.amount, 0);
+    .reduce((sum, d) => sum + (d.amount - (d.paidAmount || 0)), 0);
 
   const totalIOwe = debts
     .filter(d => d.type === 'i_owe' && d.status !== 'paid')
-    .reduce((sum, d) => sum + d.amount, 0);
+    .reduce((sum, d) => sum + (d.amount - (d.paidAmount || 0)), 0);
 
-  const paidDebts = debts.filter(d => d.status === 'paid').length;
-  const pendingDebts = debts.filter(d => d.status === 'pending').length;
+  const paidDebtsCount = debts.filter(d => d.status === 'paid').length;
+  const pendingDebtsCount = debts.filter(d => d.status === 'pending').length;
 
   const overdueDebts = debts.filter(d => {
-    if (d.status === 'paid') return false;
-    const dueDate = new Date(d.dueDate);
-    return dueDate < new Date();
+    if (d.status === 'paid' || !d.dueDate) return false;
+    return new Date(d.dueDate) < now;
   });
 
-  const paidRatio = debts.length > 0
-    ? Math.round((paidDebts / debts.length) * 100)
-    : 0;
-
-  const scheduledDebts = debts.filter(d => d.isScheduled);
-  const totalScheduledAmount = scheduledDebts.reduce((sum, d) => sum + d.amount, 0);
-
-  const monthlyStats = calculateMonthlyStatistics(debts);
-
   return {
+    totalDebtsCount: debts.length,
     totalOwedToMe,
     totalIOwe,
-    paidDebtsCount: paidDebts,
-    pendingDebtsCount: pendingDebts,
-    overdueDebts,
-    overdueCount: overdueDebts.length,
-    paidRatio,
-    totalDebts: debts.length,
-    scheduledDebtsCount: scheduledDebts.length,
-    totalScheduledAmount,
-    monthlyStats
+    netBalance: totalOwedToMe - totalIOwe,
+    paidDebtsCount,
+    pendingDebtsCount,
+    overdueDebts
   };
 };
-
-/**
- * Calculate monthly statistics for charts
- */
-const calculateMonthlyStatistics = (debts) => {
-  const months = [];
-  const now = new Date();
-
-  for (let i = 5; i >= 0; i--) {
-    const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
-
-    const monthDebts = debts.filter(d => {
-      const created = new Date(d.createdAt);
-      return created >= date && created <= monthEnd;
-    });
-
-    const monthPaid = monthDebts.filter(d => d.status === 'paid').length;
-    const monthTotal = monthDebts.length;
-
-    const owedToMe = monthDebts
-      .filter(d => d.type === 'owed_to_me')
-      .reduce((sum, d) => sum + d.amount, 0);
-
-    const iOwe = monthDebts
-      .filter(d => d.type === 'i_owe')
-      .reduce((sum, d) => sum + d.amount, 0);
-
-    months.push({
-      month: date.getMonth(),
-      monthName: date.toLocaleDateString('en', { month: 'short' }),
-      year: date.getFullYear(),
-      added: monthTotal,
-      paid: monthPaid,
-      total: monthDebts.reduce((sum, d) => sum + d.amount, 0),
-      owedToMe: owedToMe,
-      iOwe: iOwe
-    });
-  }
-
-  return months;
-};
-
-// Export service object
-const neonService = {
-  isNeonConfigured,
-  triggerAndroidCapture,
-  saveToLocalStorage,
-  loadFromLocalStorage,
-  registerUserAndCreateTables,
-  authUser,
-  logoutUser,
-  getUserById,
-  fetchDebts,
-  addDebt,
-  updateDebtStatus,
-  deleteDebt,
-  logUserActivity,
-  getUserActivities,
-  getAdminStats,
-  getAllUsers,
-  toggleUserStatus,
-  deleteUser,
-  calculateStatistics,
-  generateDebtReport,
-  exportDebtsAsCSV,
-  downloadReport
-};
-
-export default neonService;
