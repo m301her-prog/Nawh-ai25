@@ -107,7 +107,7 @@ export default function DebtList() {
     openWhatsApp(debt.phone || '', message);
   };
 
-  // دالة التعامل مع حذف الدين عند الضغط على الزر
+  // دالة التعامل مع حذف الدين عند الضغط على الزر مع التوافق الكامل للباك إند
   const handleDeleteDebt = async (e, debt) => {
     e.stopPropagation(); // منع الانتقال لصفحة تفاصيل الدين
     const confirmMessage = language === 'ar' 
@@ -116,12 +116,14 @@ export default function DebtList() {
       
     if (window.confirm(confirmMessage)) {
       try {
-        const userId = currentUser?.id || 'guest';
-        // يمرر المعرف الفريد الخاص بالدين، مع التأكد من معالجة المعرف سواء كان id أو _id أو debt_id
-        const debtIdToDelete = debt.id || debt._id || debt.debt_id;
-        await deleteDebt(userId, debtIdToDelete, debt.companyName || currentUser?.companyName || '');
+        const debtIdToDelete = debt.id || debt._id || debt.debt_id || debt.debtId;
+        const companyName = debt.companyName || debt.company_name || currentUser?.companyName || currentUser?.company_name || '';
+
+        // استدعاء دالة الحذف وتزويد المعرف واسم الشركة ليتوافق مع السكيمّا الخاصة بالباك إند
+        await deleteDebt(debtIdToDelete, companyName, currentUser?.id || 'guest');
+        
         if (refreshDebts) {
-          await refreshDebts(); // تحديث الحالة بعد نجاح الحذف
+          await refreshDebts(); // تحديث القائمة بعد نجاح الحذف
         }
       } catch (error) {
         console.error('Error deleting debt:', error);
