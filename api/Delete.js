@@ -1,5 +1,84 @@
 import pg from 'pg';
 
+/**
+ * دالة تشخيصية لمعرفة السبب الدقيق لخطأ 404 عند فشل عملية الحذف
+ */
+async function diagnoseNotFoundReason(client, targetSchema, targetId, targetName) {
+    const diagnostics = {
+        schemaExists: false,
+        tableExists: false,
+        foundInOtherSchemas: [],
+        totalRecordsInTable: 0,
+        sampleRecords: [],
+        possibleReason: ''
+    };
+
+    try {
+        // 1. التحقق من وجود السكيمّا
+        const schemaCheck = await client.query(
+            `SELECT schema_name FROM information_schema.schemata WHERE schema_name = $1`,
+            [targetSchema]
+        );
+        diagnostics.schemaExists = schemaCheck.rows.length > 0;
+
+        // 2. التحقق من وجود جدول debts داخل السكيمّا
+        const tableCheck = await client.query(
+            `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'debts'`,
+            [targetSchema]
+        );
+        diagnostics.tableExists = tableCheck.rows.length > 0;
+
+        if (!diagnostics.tableExists) {
+            diagnostics.possibleReason = `الجدول debts غير موجود في السكيمّا (${targetSchema}).`;
+            return diagnostics;
+        }
+
+        // 3. حساب عدد السجلات الكلي في الجدول المذكور
+        const countRes = await client.query(`SELECT COUNT(*) FROM "${targetSchema}".debts`);
+        diagnostics.totalRecordsInTable = parseInt(countRes.rows[0].count, 10);
+
+        if (diagnostics.totalRecordsInTable === 0) {
+            diagnostics.possibleReason = `الجدول debts في السكيمّا (${targetSchema}) فارغ تماماً لا يحتوي على أي بيانات.`;
+        } else {
+            // جلب عينة من أول 5 عناصر في الجدول لمعاينة الـ ID والأسماء المخزنة
+            const sampleRes = await client.query(
+                `SELECT id, person_name FROM "${targetSchema}".debts LIMIT 5`
+            );
+            diagnostics.sampleRecords = sampleRes.rows;
+            diagnostics.possibleReason = `العنصر غير موجود في السكيمّا (${targetSchema}). يرجى التأكد من الـ ID أو الاسم المُرسل ومقارنته بالعينة المخزنة.`;
+        }
+
+        // 4. البحث عن العنصر في باقي السكيمات المتاحة لتحديد إذا تم حفظه في مكان آخر بالخطأ
+        let searchQueryOther = '';
+        let searchParamsOther = [];
+
+        if (targetId) {
+            searchQueryOther = `
+                SELECT table_schema, id, person_name 
+                FROM information_schema.tables t
+                JOIN public.debts d ON true -- fallback check
+                WHERE t.table_name = 'debts'
+            `; // استعلام عام للبحث عبر السكيمات
+            
+            // بحث سريع في السكيمات الشائعة (مثل public)
+            const otherCheck = await client.query(
+                `SELECT 'public' as schema_name FROM public.debts WHERE id = $1 OR id LIKE $2 LIMIT 1`,
+                [targetId, `%${targetId}%`]
+            ).catch(() => ({ rows: [] }));
+
+            if (otherCheck.rows.length > 0) {
+                diagnostics.foundInOtherSchemas.push('public');
+                diagnostics.possibleReason = `العنصر موجود في السكيمّا (public) وليس في السكيمّا المستهدفة (${targetSchema}). ينبغي مراجعة تحديد السكيمّا (companyName/userId).`;
+            }
+        }
+
+    } catch (err) {
+        diagnostics.diagnosticError = err.message;
+    }
+
+    return diagnostics;
+}
+
 export default async function handler(request, response) {
     // 1. إعدادات CORS
     response.setHeader('Access-Control-Allow-Credentials', true);
@@ -89,21 +168,28 @@ export default async function handler(request, response) {
         let queryParamsArr = [];
 
         if (targetId) {
-            // البحث المطابق تماماً بالـ ID أولاً، وإذا لم يجد يحذف بواسطة الـ ID الجزئي
             deleteQuery = `DELETE FROM debts WHERE id = $1 OR id LIKE $2 RETURNING *;`;
             queryParamsArr = [targetId, `%${targetId}%`];
         } else {
-            // الحذف بواسطة الاسم (تجاهل المسافات وحالة الأحرف)
             deleteQuery = `DELETE FROM debts WHERE LOWER(TRIM(person_name)) = LOWER(TRIM($1)) RETURNING *;`;
             queryParamsArr = [targetName];
         }
 
         const result = await client.query(deleteQuery, queryParamsArr);
 
+        // إذا فشل الحذف (404) ننتقل لتشغيل دالة التشخيص
         if (result.rowCount === 0) {
+            const diagnostics = await diagnoseNotFoundReason(client, targetSchema, targetId, targetName);
+
             return response.status(404).json({
                 success: false,
-                message: `لم يتم العثور على العنصر بـ (${targetId || targetName}) للحذف في السكيمّا (${targetSchema}).`
+                message: `لم يتم العثور على العنصر بـ (${targetId || targetName}) للحذف في السكيمّا (${targetSchema}).`,
+                debugInfo: {
+                    searchedFor: { id: targetId, personName: targetName },
+                    targetSchema,
+                    reason: diagnostics.possibleReason,
+                    diagnostics
+                }
             });
         }
 
