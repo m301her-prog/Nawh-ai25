@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import html2pdf from 'html2pdf.js';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { Capacitor } from '@capacitor/core';
 import {
   TrendingUp,
   TrendingDown,
@@ -37,7 +40,6 @@ export default function Home() {
     sendNotification,
     notificationsEnabled,
     openWhatsApp,
-    // يفضل إضافة دالة تحديث/خصم الدين في AppContext
     updateDebt 
   } = useApp();
   
@@ -115,21 +117,57 @@ export default function Home() {
     return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
   };
 
+  // --- دالة موحدة لتصدير وحفظ PDF متوافقة مع أندرويد والمتصفح ---
+  const saveAndExportPDF = async (element, fileName, opt) => {
+    if (!Capacitor.isNativePlatform()) {
+      // للمتصفح العادي
+      html2pdf().set(opt).from(element).save();
+      return;
+    }
+
+    // لتطبيق أندرويد عبر Capacitor
+    try {
+      const pdfBase64 = await html2pdf()
+        .set(opt)
+        .from(element)
+        .outputPdf('datauristring');
+
+      const base64Data = pdfBase64.split(',')[1];
+
+      const savedFile = await Filesystem.writeFile({
+        path: fileName,
+        data: base64Data,
+        directory: Directory.Documents
+      });
+
+      await Share.share({
+        title: fileName,
+        text: 'تم استخراج ملف PDF بنجاح',
+        url: savedFile.uri,
+        dialogTitle: 'فتح أو مشاركة ملف PDF'
+      });
+    } catch (error) {
+      console.error('حدث خطأ أثناء حفظ الملف على أندرويد:', error);
+    }
+  };
+
   // --- 1. تصدير الجدول بالكامل PDF ---
-  const handleDownloadTablePDF = () => {
+  const handleDownloadTablePDF = async () => {
     const element = document.getElementById('debts-table-container');
+    const fileName = `جدول_الديون_${new Date().toISOString().slice(0, 10)}.pdf`;
     const opt = {
       margin: 10,
-      filename: `جدول_الديون_${new Date().toISOString().slice(0, 10)}.pdf`,
+      filename: fileName,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2 },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' }
     };
-    html2pdf().set(opt).from(element).save();
+
+    await saveAndExportPDF(element, fileName, opt);
   };
 
   // --- 2. عرض واستخراج شيك الدين الأساسي PDF ---
-  const handlePrintCheckPDF = (debt) => {
+  const handlePrintCheckPDF = async (debt) => {
     const checkElement = document.createElement('div');
     checkElement.innerHTML = `
       <div style="padding: 20px; font-family: sans-serif; direction: rtl; text-align: right;">
@@ -161,19 +199,20 @@ export default function Home() {
       </div>
     `;
 
+    const fileName = `شيك_دين_${debt.personName}.pdf`;
     const opt = {
       margin: 10,
-      filename: `شيك_دين_${debt.personName}.pdf`,
+      filename: fileName,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2 },
       jsPDF: { unit: 'mm', format: 'a5', orientation: 'landscape' }
     };
 
-    html2pdf().set(opt).from(checkElement).save();
+    await saveAndExportPDF(checkElement, fileName, opt);
   };
 
   // --- 3. خصم القسط واستخراج شيك سداد ---
-  const handlePayInstallment = () => {
+  const handlePayInstallment = async () => {
     if (!installmentAmount || isNaN(installmentAmount) || installmentAmount <= 0) return;
 
     const amountPaid = parseFloat(installmentAmount);
@@ -222,15 +261,16 @@ export default function Home() {
       </div>
     `;
 
+    const fileName = `شيك_سداد_${selectedDebt.personName}.pdf`;
     const opt = {
       margin: 10,
-      filename: `شيك_سداد_${selectedDebt.personName}.pdf`,
+      filename: fileName,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2 },
       jsPDF: { unit: 'mm', format: 'a5', orientation: 'landscape' }
     };
 
-    html2pdf().set(opt).from(receiptElement).save();
+    await saveAndExportPDF(receiptElement, fileName, opt);
 
     // إعادة ضبط الحالة وإغلاق Modal
     setIsModalOpen(false);
