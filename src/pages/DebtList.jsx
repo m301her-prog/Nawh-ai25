@@ -117,8 +117,12 @@ export default function DebtList() {
     if (window.confirm(confirmMessage)) {
       try {
         const userId = currentUser?.id || 'guest';
-        await deleteDebt(userId, debt.id, debt.companyName || '');
-        if (refreshDebts) refreshDebts(); // تحديث الحالة إذا كانت متوفرة في AppContext
+        // يمرر المعرف الفريد الخاص بالدين، مع التأكد من معالجة المعرف سواء كان id أو _id أو debt_id
+        const debtIdToDelete = debt.id || debt._id || debt.debt_id;
+        await deleteDebt(userId, debtIdToDelete, debt.companyName || currentUser?.companyName || '');
+        if (refreshDebts) {
+          await refreshDebts(); // تحديث الحالة بعد نجاح الحذف
+        }
       } catch (error) {
         console.error('Error deleting debt:', error);
       }
@@ -249,7 +253,7 @@ export default function DebtList() {
         <div className="px-4 space-y-3">
           {filteredDebts.map((debt, index) => (
             <div
-              key={debt.id}
+              key={debt.id || index}
               onClick={() => navigate(`/debts/${debt.id}`)}
               className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg overflow-hidden cursor-pointer hover:shadow-xl active:scale-[0.98] transition-all"
             >
