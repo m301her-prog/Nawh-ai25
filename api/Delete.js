@@ -16,7 +16,7 @@ export default async function handler(request, response) {
         return response.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
 
-    // 2. الاتصال بـ Neon Postgres بنفس طريقة كود الجلب
+    // 2. الاتصال بـ Neon Postgres
     const baseConnectionString = process.env.DATABASE_URL;
     if (!baseConnectionString) {
         return response.status(500).json({ success: false, error: 'DATABASE_URL غير معرف' });
@@ -45,7 +45,7 @@ export default async function handler(request, response) {
         const rawName = body.personName || body.person_name || body.name || d.personName || d.person_name || queryParams.personName;
         const finalName = rawName ? String(rawName).trim() : null;
 
-        // استخراج معطيات السكيمّا والمستخدم بنفس مطابقة كود الجلب
+        // استخراج معطيات السكيمّا والمستخدم
         const rawSchema = 
             request.headers['x-tenant-schema'] || 
             request.headers['tenant'] ||
@@ -61,16 +61,13 @@ export default async function handler(request, response) {
 
         let targetSchema = '';
 
-        // أ) إذا تم إرسال السكيمّا أو اسم الشركة مباشرة
         if (rawSchema) {
             let cleanName = String(rawSchema).replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
             if (cleanName.startsWith('schema_')) {
                 cleanName = cleanName.replace('schema_', '');
             }
             targetSchema = `schema_${cleanName}`;
-        } 
-        // ب) إذا لم يُرسل اسم الشركة وتم إرسال userId فقط، نجلب اسم الشركة من الداتا بيز تلقائياً
-        else if (userId) {
+        } else if (userId) {
             const userRes = await client.query('SELECT company_name FROM public.app_users WHERE id = $1 LIMIT 1', [userId]);
             if (userRes.rows.length > 0 && userRes.rows[0].company_name) {
                 let cleanCompany = userRes.rows[0].company_name.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
@@ -79,13 +76,31 @@ export default async function handler(request, response) {
             }
         }
 
-        // ج) الخيار الافتراضي لمنع خطأ 400 نهائياً
         if (!targetSchema) {
             targetSchema = 'public';
         }
 
-        // 4. توجيه البحث للسكيمّا المطلوبة
+        // 4. إنشاء السكيمّا والجدول إن لم يكونا موجودين لمنع خطأ 42P01 نهائياً
+        await client.query(`CREATE SCHEMA IF NOT EXISTS "${targetSchema}"`);
         await client.query(`SET search_path TO "${targetSchema}", public`);
+
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS debts (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                person_name TEXT NOT NULL,
+                phone TEXT,
+                amount NUMERIC NOT NULL,
+                currency TEXT,
+                due_date DATE,
+                notes TEXT,
+                status TEXT,
+                is_scheduled BOOLEAN,
+                schedule_type TEXT,
+                installments_count INT,
+                first_payment_date DATE
+            );
+        `);
 
         // 5. تنفيذ الحذف إما بـ ID أو بـ person_name
         let deleteQuery = '';
@@ -124,14 +139,6 @@ export default async function handler(request, response) {
 
     } catch (error) {
         console.error('DATABASE ERROR ON DELETE:', error);
-
-        if (error.code === '42P01' || error.code === '3F000') {
-            return response.status(404).json({
-                success: false,
-                message: `جدول الديون غير موجود في السكيمّا (${targetSchema}).`
-            });
-        }
-
         return response.status(500).json({
             success: false,
             error: 'فشل في تنفيذ الحذف: ' + error.message
