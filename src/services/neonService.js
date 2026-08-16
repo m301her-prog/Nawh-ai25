@@ -639,19 +639,19 @@ export const updateDebtStatus = async (userId, debtId, updates) => {
  * Direct Cloud API Delete Handler
  * Invokes https://nawh-ai25.vercel.app/api/Delete
  */
-export const deleteDataFromCloud = async (debtId, companyName = '') => {
+export const deleteDataFromCloud = async (id, companyName = '', userId = '') => {
   try {
-    const response = await cloudApiRequest(CLOUD_API.deleteData, 'POST', {
-      id: debtId,
-      companyName: companyName
-    });
+    const payload = { id, companyName };
+    if (userId) payload.userId = userId;
 
-    if (response && response.success) {
-      console.log('Successfully deleted record via Delete API:', debtId);
+    const response = await cloudApiRequest(CLOUD_API.deleteData, 'POST', payload);
+
+    if (response && (response.success || response.status === 'success' || response.ok)) {
+      console.log('Successfully deleted record via Delete API:', id);
       return response;
     } else {
       console.warn('Delete API responded with failure:', response);
-      return null;
+      return response || null;
     }
   } catch (error) {
     console.error('Error in deleteDataFromCloud:', error.message);
@@ -663,16 +663,32 @@ export const deleteDataFromCloud = async (debtId, companyName = '') => {
  * Delete debt with Cloud API sync, Direct Delete endpoint, and Neon DB query
  */
 export const deleteDebt = async (debtId, companyName = '', userId = 'guest') => {
-  // 1. Clear locally from LocalStorage across current user and all keys
   const targetUserId = userId || 'guest';
   const userDebtsKey = `user_${targetUserId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
 
+  // 1. Clear locally from LocalStorage across current user and all keys
   const filteredDebts = debts.filter(d => d.id !== debtId && d._id !== debtId);
   saveToLocalStorage(userDebtsKey, filteredDebts);
 
+  // Fallback cleanup across all localStorage keys for safety
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.endsWith('_debts')) {
+        const itemData = loadFromLocalStorage(key, []);
+        if (Array.isArray(itemData) && itemData.some(d => d.id === debtId || d._id === debtId)) {
+          const cleaned = itemData.filter(d => d.id !== debtId && d._id !== debtId);
+          saveToLocalStorage(key, cleaned);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('LocalStorage global cleanup warning:', err.message);
+  }
+
   // 2. Direct Delete API request (nawh-ai25.vercel.app/api/Delete)
-  await deleteDataFromCloud(debtId, companyName);
+  const cloudDeleteResult = await deleteDataFromCloud(debtId, companyName, targetUserId);
 
   // 3. Delete request through saveData fallback endpoint
   try {
@@ -680,6 +696,7 @@ export const deleteDebt = async (debtId, companyName = '', userId = 'guest') => 
       userId: targetUserId,
       action: 'delete_debt',
       debtId: debtId,
+      id: debtId,
       companyName: companyName
     });
   } catch (error) {
@@ -690,7 +707,7 @@ export const deleteDebt = async (debtId, companyName = '', userId = 'guest') => 
   if (isNeonConfigured() && targetUserId !== 'guest') {
     try {
       const tableName = `user_${targetUserId.replace(/-/g, '_')}_debts`;
-      await executeQuery(`DELETE FROM ${tableName} WHERE id = $1`, [debtId]);
+      await executeQuery(`DELETE FROM ${tableName} WHERE id = $1 OR id = $2`, [debtId, debtId]);
     } catch (error) {
       console.error('Failed to delete debt from Neon DB:', error);
     }
@@ -705,7 +722,7 @@ export const deleteDebt = async (debtId, companyName = '', userId = 'guest') => 
     companyName
   });
 
-  return { success: true, debtId };
+  return cloudDeleteResult || { success: true, debtId };
 };
 
 /**
@@ -1040,7 +1057,6 @@ export const calculateStatistics = (userId) => {
     totalDebtsCount: debts.length,
     totalOwedToMe,
     totalIOwe,
-    netBalance: totalOwedToMe - totalIOwe,
     paidDebtsCount,
     pendingDebtsCount,
     overdueDebts
