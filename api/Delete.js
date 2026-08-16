@@ -1,7 +1,7 @@
 import pg from 'pg';
 
 export default async function handler(req, res) {
-    // 1. إعدادات CORS الكاملة
+    // 1. إعدادات CORS
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
@@ -11,9 +11,9 @@ export default async function handler(req, res) {
     );
 
     if (req.method === 'OPTIONS') return res.status(200).end();
-    if (req.method !== 'POST') return res.status(405).json({ success: false, error: 'Method Not Allowed' });
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-    // 2. ضبط الاتصال بـ Postgres (Neon)
+    // 2. الاتصال بـ Neon Postgres
     const baseConnectionString = process.env.DATABASE_URL;
     if (!baseConnectionString) {
         return res.status(500).json({ success: false, error: 'DATABASE_URL غير معرف' });
@@ -30,14 +30,14 @@ export default async function handler(req, res) {
     try {
         await client.connect();
 
-        // 3. استقبال البيانات والـ المعرفات المرنة
+        // 3. التقاط الـ ID والبيانات بجميع الصيغ الممكنة
         const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
         const queryParams = req.query || {};
 
-        // التقاط الـ ID المطلوب حسابه أو حذفه بشكل مرن
-        const finalId = body.id || body.debtId || body.data?.id || body.debt?.id || queryParams.id;
+        // استخراج الـ ID والتأكد من تحويله لنص لمطابقة نوع الحقل في Postgres
+        const rawId = body.id || body.debtId || body.data?.id || body.debt?.id || queryParams.id;
+        const finalId = rawId ? String(rawId).trim() : null;
 
-        // التحقق من وجود المعرّف (ID)
         if (!finalId) {
             return res.status(400).json({ 
                 success: false, 
@@ -45,7 +45,7 @@ export default async function handler(req, res) {
             });
         }
 
-        // قراءة السكيمّا بمرونة عالية مثل كود الجلب
+        // 4. تحديد السكيمّا المستهدفة
         const rawSchema = 
             req.headers['x-tenant-schema'] || 
             req.headers['tenant'] ||
@@ -53,23 +53,17 @@ export default async function handler(req, res) {
             body.companyName || 
             body.company_name ||
             body.data?.companyName ||
-            body.data?.company_name ||
             queryParams.companyName;
 
         const userId = body.userId || queryParams.userId || req.headers['user-id'];
 
         let targetSchema = '';
 
-        // أ) إذا تم تحديد اسم السكيمّا أو الشركة مباشرة
         if (rawSchema) {
             let cleanName = String(rawSchema).replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-            if (cleanName.startsWith('schema_')) {
-                cleanName = cleanName.replace('schema_', '');
-            }
+            if (cleanName.startsWith('schema_')) cleanName = cleanName.replace('schema_', '');
             targetSchema = `schema_${cleanName}`;
-        } 
-        // ب) إذا أُرسل userId، نجلب اسم الشركة والسكيمّا الخاصة به تلقائياً من الداتا بيز
-        else if (userId) {
+        } else if (userId) {
             const userRes = await client.query('SELECT company_name FROM public.app_users WHERE id = $1 LIMIT 1', [userId]);
             if (userRes.rows.length > 0 && userRes.rows[0].company_name) {
                 let cleanCompany = userRes.rows[0].company_name.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
@@ -78,38 +72,30 @@ export default async function handler(req, res) {
             }
         }
 
-        // ج) الافتراضي تجنباً لأخطاء 400
-        if (!targetSchema) {
-            targetSchema = 'public';
-        }
+        if (!targetSchema) targetSchema = 'public';
 
-        // 4. ضبط السكيمّا المستهدفة
+        // 5. ضبط السكيمّا وتنفيذ استعلام الحذف الشامل (مع تحويل الـ ID لنص)
         await client.query(`SET search_path TO "${targetSchema}", public`);
         
-        // 5. تنفيذ استعلام الحذف
-        const query = `DELETE FROM debts WHERE id = $1 RETURNING *;`;
-        const result = await client.query(query, [finalId]);
+        const deleteQuery = `DELETE FROM debts WHERE id::text = $1::text RETURNING *;`;
+        const result = await client.query(deleteQuery, [finalId]);
 
-        // التحقق مما إذا كان السجل موجوداً وتم حذفه فعلياً
         if (result.rowCount === 0) {
             return res.status(404).json({ 
                 success: false, 
-                message: 'لم يتم العثور على العنصر المراد حذفه أو تم حذفه سابقاً.' 
+                message: `لم يتم العثور على العنصر رقم (${finalId}) في السكيمّا (${targetSchema})، قد يكون محذوفاً بالفعل.` 
             });
         }
 
         return res.status(200).json({ 
             success: true, 
             message: 'تم الحذف بنجاح', 
-            deletedRow: result.rows[0], 
-            rowCount: result.rowCount,
-            schemaUsed: targetSchema
+            deletedRow: result.rows[0]
         });
 
     } catch (error) {
         console.error(`[DATABASE ERROR ON DELETE]:`, error);
 
-        // معالجة حالة عدم وجود السكيمّا أو الجدول
         if (error.code === '42P01' || error.code === '3F000') {
             return res.status(404).json({
                 success: false,
