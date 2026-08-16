@@ -1,94 +1,142 @@
 import pg from 'pg';
 
-// إدارة الاتصالات باستخدام Pool لمنع تمدد وإغلاق الاتصالات بشكل مفرط
-const pool = new pg.Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: true }
-});
-
-export default async function handler(req, res) {
-    // 1. إعدادات CORS
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-    res.setHeader(
+export default async function handler(request, response) {
+    // 1. إعدادات CORS الكاملة
+    response.setHeader('Access-Control-Allow-Credentials', true);
+    response.setHeader('Access-Control-Allow-Origin', '*');
+    response.setHeader('Access-Control-Allow-Methods', 'POST,DELETE,OPTIONS');
+    response.setHeader(
         'Access-Control-Allow-Headers',
-        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-tenant-schema, tenant'
+        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-tenant-schema, tenant, user-id'
     );
 
-    if (req.method === 'OPTIONS') return res.status(200).end();
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
+    if (request.method === 'OPTIONS') return response.status(200).end();
 
-    // 2. تحليل جسم الطلب والمعاملات
-    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-    const queryParams = req.query || {};
-    const d = body.debtData || body.debt || body.updates || body.data || body;
-
-    // 3. استخراج المعرف (ID)
-    const rawId = body.id || body.debtId || d.id || queryParams.id;
-    const finalId = rawId ? String(rawId).trim() : null;
-
-    if (!finalId) {
-        return res.status(400).json({ 
-            success: false, 
-            error: 'المعرف id مطلوب لتنفيذ عملية الحذف.' 
-        });
+    if (request.method !== 'POST' && request.method !== 'DELETE') {
+        return response.status(405).json({ success: false, error: 'Method Not Allowed' });
     }
 
-    // 4. استخراج اسم الشركة وتحديد السكيمّا بطريقة مطابقة لكود الحفظ
-    let targetSchema = req.headers['x-tenant-schema'] || req.headers['tenant'];
-    const finalCompanyName = body.companyName || body.company_name || d.companyName || d.company_name || queryParams.companyName;
-
-    if (!targetSchema || !targetSchema.trim()) {
-        if (finalCompanyName) {
-            targetSchema = `schema_${finalCompanyName.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()}`;
-        } else {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'اسم الشركة مطلوب لتحديد السكيمّا المستهدفة للحذف.' 
-            });
-        }
+    // 2. الاتصال بـ Neon Postgres بنفس طريقة كود الجلب
+    const baseConnectionString = process.env.DATABASE_URL;
+    if (!baseConnectionString) {
+        return response.status(500).json({ success: false, error: 'DATABASE_URL غير معرف' });
     }
 
-    const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+    const separator = baseConnectionString.includes('?') ? '&' : '?';
+    const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
 
-    // 5. سحب اتصال من الـ Pool والتنفيذ
-    const client = await pool.connect();
+    const client = new pg.Client({
+        connectionString: finalConnectionString,
+        ssl: { rejectUnauthorized: false }
+    });
 
     try {
-        // ضبط المسار للسكيمّا المحددة
-        await client.query(`SET search_path TO "${cleanSchema}"`);
+        await client.connect();
 
-        // تنفيذ عملية الحذف
-        const deleteQuery = `DELETE FROM debts WHERE id::text = $1::text RETURNING *;`;
-        const result = await client.query(deleteQuery, [finalId]);
+        // 3. قراءة البيانات المرسلة بجميع الطرق الممكنة (Body, Query, Headers)
+        const body = typeof request.body === 'string' ? JSON.parse(request.body || '{}') : (request.body || {});
+        const queryParams = request.query || {};
+        const d = body.debtData || body.debt || body.updates || body.data || body;
 
-        if (result.rowCount === 0) {
-            return res.status(404).json({ 
-                success: false, 
-                message: `لم يتم العثور على العنصر رقم (${finalId}) في السكيمّا (${cleanSchema})، قد يكون محذوفاً بالفعل.` 
+        // استخراج ID واسم الشخص للحذف
+        const rawId = body.id || body.debtId || d.id || queryParams.id;
+        const finalId = rawId ? String(rawId).trim() : null;
+
+        const rawName = body.personName || body.person_name || body.name || d.personName || d.person_name || queryParams.personName;
+        const finalName = rawName ? String(rawName).trim() : null;
+
+        // استخراج معطيات السكيمّا والمستخدم بنفس مطابقة كود الجلب
+        const rawSchema = 
+            request.headers['x-tenant-schema'] || 
+            request.headers['tenant'] ||
+            body.schemaName || 
+            body.companyName || 
+            body.company_name ||
+            d.companyName ||
+            d.company_name ||
+            queryParams.companyName ||
+            queryParams.schemaName;
+
+        const userId = body.userId || d.userId || queryParams.userId || request.headers['user-id'];
+
+        let targetSchema = '';
+
+        // أ) إذا تم إرسال السكيمّا أو اسم الشركة مباشرة
+        if (rawSchema) {
+            let cleanName = String(rawSchema).replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+            if (cleanName.startsWith('schema_')) {
+                cleanName = cleanName.replace('schema_', '');
+            }
+            targetSchema = `schema_${cleanName}`;
+        } 
+        // ب) إذا لم يُرسل اسم الشركة وتم إرسال userId فقط، نجلب اسم الشركة من الداتا بيز تلقائياً
+        else if (userId) {
+            const userRes = await client.query('SELECT company_name FROM public.app_users WHERE id = $1 LIMIT 1', [userId]);
+            if (userRes.rows.length > 0 && userRes.rows[0].company_name) {
+                let cleanCompany = userRes.rows[0].company_name.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+                if (cleanCompany.startsWith('schema_')) cleanCompany = cleanCompany.replace('schema_', '');
+                targetSchema = `schema_${cleanCompany}`;
+            }
+        }
+
+        // ج) الخيار الافتراضي لمنع خطأ 400 نهائياً
+        if (!targetSchema) {
+            targetSchema = 'public';
+        }
+
+        // 4. توجيه البحث للسكيمّا المطلوبة
+        await client.query(`SET search_path TO "${targetSchema}", public`);
+
+        // 5. تنفيذ الحذف إما بـ ID أو بـ person_name
+        let deleteQuery = '';
+        let queryParamsArr = [];
+
+        if (finalId) {
+            deleteQuery = 'DELETE FROM debts WHERE id::text = $1::text RETURNING *;';
+            queryParamsArr = [finalId];
+        } else if (finalName) {
+            deleteQuery = 'DELETE FROM debts WHERE LOWER(TRIM(person_name)) = LOWER(TRIM($1)) RETURNING *;';
+            queryParamsArr = [finalName];
+        } else {
+            return response.status(400).json({
+                success: false,
+                error: 'يجب توفير معرف id أو اسم الشخص (personName) للحذف.'
             });
         }
 
-        return res.status(200).json({ 
-            success: true, 
-            message: 'تم الحذف بنجاح', 
-            deletedRow: result.rows[0]
+        const result = await client.query(deleteQuery, queryParamsArr);
+
+        if (result.rowCount === 0) {
+            return response.status(404).json({
+                success: false,
+                message: `لم يتم العثور على أي عنصر مطابق لـ (${finalId || finalName}) في السكيمّا (${targetSchema}).`,
+                schemaUsed: targetSchema
+            });
+        }
+
+        return response.status(200).json({
+            success: true,
+            message: 'تم الحذف بنجاح',
+            deletedCount: result.rowCount,
+            deletedRows: result.rows,
+            schemaUsed: targetSchema
         });
 
     } catch (error) {
-        console.error(`[DATABASE ERROR ON DELETE]:`, error);
+        console.error('DATABASE ERROR ON DELETE:', error);
 
         if (error.code === '42P01' || error.code === '3F000') {
-            return res.status(404).json({
+            return response.status(404).json({
                 success: false,
-                message: 'جدول الديون غير موجود في هذه السكيمّا.'
+                message: `جدول الديون غير موجود في السكيمّا (${targetSchema}).`
             });
         }
 
-        return res.status(500).json({ success: false, error: 'فشل في تنفيذ الحذف: ' + error.message });
+        return response.status(500).json({
+            success: false,
+            error: 'فشل في تنفيذ الحذف: ' + error.message
+        });
     } finally {
-        // إرجاع الاتصال للـ Pool
-        client.release();
+        await client.end().catch(err => console.error('Error closing client:', err));
     }
 }
