@@ -1,10 +1,10 @@
 import pg from 'pg';
 
 export default async function handler(request, response) {
-    // 1. إعدادات CORS الكاملة
+    // 1. إعدادات CORS
     response.setHeader('Access-Control-Allow-Credentials', true);
     response.setHeader('Access-Control-Allow-Origin', '*');
-    response.setHeader('Access-Control-Allow-Methods', 'POST,DELETE,OPTIONS');
+    response.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
     response.setHeader(
         'Access-Control-Allow-Headers',
         'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-tenant-schema, tenant, user-id'
@@ -33,19 +33,23 @@ export default async function handler(request, response) {
     try {
         await client.connect();
 
-        // 3. قراءة البيانات المرسلة بجميع الطرق الممكنة (Body, Query, Headers)
+        // 3. تحليل البيانات القادمة من الفرونت
         const body = typeof request.body === 'string' ? JSON.parse(request.body || '{}') : (request.body || {});
         const queryParams = request.query || {};
         const d = body.debtData || body.debt || body.updates || body.data || body;
 
-        // استخراج ID واسم الشخص للحذف
-        const rawId = body.id || body.debtId || d.id || queryParams.id;
-        const finalId = rawId ? String(rawId).trim() : null;
+        // استخراج الـ ID والاسم بأكبر قدر من المرونة
+        const targetId = String(body.id || body.debtId || d.id || queryParams.id || '').trim();
+        const targetName = String(body.personName || body.person_name || body.name || d.personName || d.person_name || queryParams.personName || '').trim();
 
-        const rawName = body.personName || body.person_name || body.name || d.personName || d.person_name || queryParams.personName;
-        const finalName = rawName ? String(rawName).trim() : null;
+        if (!targetId && !targetName) {
+            return response.status(400).json({
+                success: false,
+                error: 'يرجى إرسال id أو personName المُراد حذفه.'
+            });
+        }
 
-        // استخراج معطيات السكيمّا والمستخدم
+        // 4. تحديد السكيمّا المستهدفة
         const rawSchema = 
             request.headers['x-tenant-schema'] || 
             request.headers['tenant'] ||
@@ -63,9 +67,7 @@ export default async function handler(request, response) {
 
         if (rawSchema) {
             let cleanName = String(rawSchema).replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-            if (cleanName.startsWith('schema_')) {
-                cleanName = cleanName.replace('schema_', '');
-            }
+            if (cleanName.startsWith('schema_')) cleanName = cleanName.replace('schema_', '');
             targetSchema = `schema_${cleanName}`;
         } else if (userId) {
             const userRes = await client.query('SELECT company_name FROM public.app_users WHERE id = $1 LIMIT 1', [userId]);
@@ -76,47 +78,24 @@ export default async function handler(request, response) {
             }
         }
 
-        if (!targetSchema) {
-            targetSchema = 'public';
-        }
+        if (!targetSchema) targetSchema = 'public';
 
-        // 4. إنشاء السكيمّا والجدول إن لم يكونا موجودين لمنع خطأ 42P01 نهائياً
+        // 5. ضبط السكيمّا
         await client.query(`CREATE SCHEMA IF NOT EXISTS "${targetSchema}"`);
         await client.query(`SET search_path TO "${targetSchema}", public`);
 
-        await client.query(`
-            CREATE TABLE IF NOT EXISTS debts (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                person_name TEXT NOT NULL,
-                phone TEXT,
-                amount NUMERIC NOT NULL,
-                currency TEXT,
-                due_date DATE,
-                notes TEXT,
-                status TEXT,
-                is_scheduled BOOLEAN,
-                schedule_type TEXT,
-                installments_count INT,
-                first_payment_date DATE
-            );
-        `);
-
-        // 5. تنفيذ الحذف إما بـ ID أو بـ person_name
+        // 6. تنفيذ الحذف بنظام البحث المزدوج والمرن
         let deleteQuery = '';
         let queryParamsArr = [];
 
-        if (finalId) {
-            deleteQuery = 'DELETE FROM debts WHERE id::text = $1::text RETURNING *;';
-            queryParamsArr = [finalId];
-        } else if (finalName) {
-            deleteQuery = 'DELETE FROM debts WHERE LOWER(TRIM(person_name)) = LOWER(TRIM($1)) RETURNING *;';
-            queryParamsArr = [finalName];
+        if (targetId) {
+            // البحث المطابق تماماً بالـ ID أولاً، وإذا لم يجد يحذف بواسطة الـ ID الجزئي
+            deleteQuery = `DELETE FROM debts WHERE id = $1 OR id LIKE $2 RETURNING *;`;
+            queryParamsArr = [targetId, `%${targetId}%`];
         } else {
-            return response.status(400).json({
-                success: false,
-                error: 'يجب توفير معرف id أو اسم الشخص (personName) للحذف.'
-            });
+            // الحذف بواسطة الاسم (تجاهل المسافات وحالة الأحرف)
+            deleteQuery = `DELETE FROM debts WHERE LOWER(TRIM(person_name)) = LOWER(TRIM($1)) RETURNING *;`;
+            queryParamsArr = [targetName];
         }
 
         const result = await client.query(deleteQuery, queryParamsArr);
@@ -124,24 +103,22 @@ export default async function handler(request, response) {
         if (result.rowCount === 0) {
             return response.status(404).json({
                 success: false,
-                message: `لم يتم العثور على أي عنصر مطابق لـ (${finalId || finalName}) في السكيمّا (${targetSchema}).`,
-                schemaUsed: targetSchema
+                message: `لم يتم العثور على العنصر بـ (${targetId || targetName}) للحذف في السكيمّا (${targetSchema}).`
             });
         }
 
         return response.status(200).json({
             success: true,
-            message: 'تم الحذف بنجاح',
+            message: 'تم الحذف بنجاح من قاعدة البيانات',
             deletedCount: result.rowCount,
-            deletedRows: result.rows,
-            schemaUsed: targetSchema
+            deletedRows: result.rows
         });
 
     } catch (error) {
         console.error('DATABASE ERROR ON DELETE:', error);
         return response.status(500).json({
             success: false,
-            error: 'فشل في تنفيذ الحذف: ' + error.message
+            error: 'حدث خطأ أثناء الحذف: ' + error.message
         });
     } finally {
         await client.end().catch(err => console.error('Error closing client:', err));
