@@ -23,7 +23,8 @@ import {
   FileText,
   Download,
   CreditCard,
-  X
+  X,
+  Share2
 } from 'lucide-react';
 
 export default function Home() {
@@ -398,13 +399,15 @@ export default function Home() {
               {t('recentActivity')}
             </h2>
             
-            {/* زرار تحميل الجدول بالكامل PDF */}
+            {/* زرار تحميل الجدول بالكامل PDF مع إشارة المشاركة */}
             <button
               onClick={handleDownloadTablePDF}
-              className="flex items-center gap-1 text-xs px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow transition"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow transition font-medium"
             >
               <Download className="w-4 h-4" />
-              تحميل الجدول PDF
+              <span>تحميل الجدول</span>
+              <Share2 className="w-3.5 h-3.5 opacity-80" />
+              <span className="text-[10px] bg-emerald-700 px-1 rounded">PDF</span>
             </button>
           </div>
 
@@ -416,7 +419,7 @@ export default function Home() {
                     <th className="p-3">الاسم</th>
                     <th className="p-3">المبلغ</th>
                     <th className="p-3">الحالة</th>
-                    <th className="p-3">إجراءات (شيكات/أقساط)</th>
+                    <th className="p-3">إجراءات (مشاركة PDF / أقساط)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -432,13 +435,15 @@ export default function Home() {
                         </span>
                       </td>
                       <td className="p-3 flex items-center gap-2">
-                        {/* 1. زرار عرض الدين على شكل شيك PDF */}
+                        {/* 1. زرار عرض ومشاركة الشيك PDF */}
                         <button
                           onClick={() => handlePrintCheckPDF(debt)}
-                          title="عرض الشيك PDF"
-                          className="p-1.5 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 rounded-lg hover:bg-blue-100 transition"
+                          title="عرض ومشاركة الشيك PDF"
+                          className="flex items-center gap-1 p-1.5 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 rounded-lg hover:bg-blue-100 transition text-xs font-medium"
                         >
                           <FileText className="w-4 h-4" />
+                          <Share2 className="w-3.5 h-3.5" />
+                          <span className="text-[10px] font-bold border border-blue-400 px-0.5 rounded">PDF</span>
                         </button>
 
                         {/* 2. زرار إضافة قسط وخصمه */}
@@ -448,9 +453,10 @@ export default function Home() {
                             setIsModalOpen(true);
                           }}
                           title="إضافة قسط واستخراج شيك سداد"
-                          className="p-1.5 bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-lg hover:bg-emerald-100 transition"
+                          className="flex items-center gap-1 p-1.5 bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-lg hover:bg-emerald-100 transition text-xs font-medium"
                         >
                           <CreditCard className="w-4 h-4" />
+                          <span>قسط</span>
                         </button>
                       </td>
                     </tr>
@@ -498,9 +504,11 @@ export default function Home() {
             <div className="flex gap-2">
               <button
                 onClick={handlePayInstallment}
-                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg transition"
+                className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-lg transition flex items-center justify-center gap-2"
               >
-                خصم القسط واستخراج شيك سداد
+                <span>تسديد قسط ومشاركة</span>
+                <Share2 className="w-4 h-4" />
+                <span className="text-xs bg-emerald-700 px-1.5 py-0.5 rounded border border-emerald-400">PDF</span>
               </button>
             </div>
           </div>
