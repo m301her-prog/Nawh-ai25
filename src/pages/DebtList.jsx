@@ -107,20 +107,29 @@ export default function DebtList() {
     openWhatsApp(debt.phone || '', message);
   };
 
-  // دالة التعامل مع حذف الدين عند الضغط على الزر مع التوافق الكامل للباك إند
+  // دالة التعامل مع حذف الدين المتوافقة تماماً مع الباك إند
   const handleDeleteDebt = async (e, debt) => {
     e.stopPropagation(); // منع الانتقال لصفحة تفاصيل الدين
+    const nameDisplay = debt.personName || debt.person_name || 'هذا الدين';
     const confirmMessage = language === 'ar' 
-      ? `هل أنت تأكد من رغبتك في حذف دين "${debt.personName}"؟` 
+      ? `هل أنت تأكد من رغبتك في حذف دين "${nameDisplay}"؟` 
       : 'Are you sure you want to delete this debt?';
       
     if (window.confirm(confirmMessage)) {
       try {
-        const debtIdToDelete = debt.id || debt._id || debt.debt_id || debt.debtId;
+        // استخراج البيانات المتاحة للحذف (سواء بالأيدى أو الاسم)
+        const debtIdToDelete = debt.id || debt._id || debt.debt_id || debt.debtId || '';
+        const personName = debt.personName || debt.person_name || '';
         const companyName = debt.companyName || debt.company_name || currentUser?.companyName || currentUser?.company_name || '';
+        const userId = currentUser?.id || currentUser?._id || 'guest';
 
-        // استدعاء دالة الحذف وتزويد المعرف واسم الشركة ليتوافق مع السكيمّا الخاصة بالباك إند
-        await deleteDebt(debtIdToDelete, companyName, currentUser?.id || 'guest');
+        // إرسال الكائن المحتوي على المعلومات ليتوافق مع خدمة neonService والباك إند
+        await deleteDebt({
+          id: debtIdToDelete,
+          personName: personName,
+          companyName: companyName,
+          userId: userId
+        });
         
         if (refreshDebts) {
           await refreshDebts(); // تحديث القائمة بعد نجاح الحذف
