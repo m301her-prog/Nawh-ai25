@@ -660,39 +660,52 @@ export const deleteDataFromCloud = async (debtId, companyName = '') => {
 };
 
 /**
- * Delete debt with Cloud API sync & Direct Delete endpoint integration
+ * Delete debt with Cloud API sync, Direct Delete endpoint, and Neon DB query
  */
-export const deleteDebt = async (userId, debtId, companyName = '') => {
-  const userDebtsKey = `user_${userId}_debts`;
+export const deleteDebt = async (debtId, companyName = '', userId = 'guest') => {
+  // 1. Clear locally from LocalStorage across current user and all keys
+  const targetUserId = userId || 'guest';
+  const userDebtsKey = `user_${targetUserId}_debts`;
   const debts = loadFromLocalStorage(userDebtsKey, []);
 
-  const filteredDebts = debts.filter(d => d.id !== debtId);
+  const filteredDebts = debts.filter(d => d.id !== debtId && d._id !== debtId);
   saveToLocalStorage(userDebtsKey, filteredDebts);
 
-  // 1. Invoke direct Delete Endpoint
+  // 2. Direct Delete API request (nawh-ai25.vercel.app/api/Delete)
   await deleteDataFromCloud(debtId, companyName);
 
-  // 2. Fallback sync via main saveData endpoint
+  // 3. Delete request through saveData fallback endpoint
   try {
-    const cloudResponse = await cloudApiRequest(CLOUD_API.saveData, 'POST', {
-      userId: userId,
+    await cloudApiRequest(CLOUD_API.saveData, 'POST', {
+      userId: targetUserId,
       action: 'delete_debt',
-      debtId: debtId
+      debtId: debtId,
+      companyName: companyName
     });
-
-    if (cloudResponse && cloudResponse.success) {
-      console.log('Debt deletion synced to Cloud API:', debtId);
-    }
   } catch (error) {
-    console.warn('Failed to sync debt deletion to Cloud API:', error.message);
+    console.warn('Failed to sync debt deletion to Cloud API saveData:', error.message);
   }
 
-  logUserActivity(userId, 'DEBT_DELETED', { debtId });
+  // 4. Delete query directly on Neon database if connection is configured
+  if (isNeonConfigured() && targetUserId !== 'guest') {
+    try {
+      const tableName = `user_${targetUserId.replace(/-/g, '_')}_debts`;
+      await executeQuery(`DELETE FROM ${tableName} WHERE id = $1`, [debtId]);
+    } catch (error) {
+      console.error('Failed to delete debt from Neon DB:', error);
+    }
+  }
+
+  // 5. Activity log and Android WebView capture
+  logUserActivity(targetUserId, 'DEBT_DELETED', { debtId, companyName });
 
   triggerAndroidCapture('DEBT_DELETED', {
-    userId,
-    debtId
+    userId: targetUserId,
+    debtId,
+    companyName
   });
+
+  return { success: true, debtId };
 };
 
 /**
@@ -827,7 +840,7 @@ export const generateDebtReport = (userId, language = 'ar') => {
   }
 
   report += `═══════════════════════════════════════════════════════════════\n`;
-  report += `              Debts Manager - ${new Date().getFullYear()}\n`;
+  report += `               Debts Manager - ${new Date().getFullYear()}\n`;
   report += `═══════════════════════════════════════════════════════════════\n`;
 
   return report;
