@@ -1,8 +1,14 @@
 import pg from 'pg';
 
+// استخدام Pool بدلاً من Client لإعادة استخدام الاتصالات
+const pool = new pg.Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: true } // يفضل تفعيل التحقق الأمني الكامل مع Neon
+});
+
 export default async function handler(req, res) {
-    // 1. إعدادات CORS الكاملة
-    res.setHeader('Access-Control-Allow-Credentials', true);
+    // 1. إعدادات CORS
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
     res.setHeader(
@@ -13,50 +19,36 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-    // 2. ضبط الاتصال بـ Postgres (Neon)
-    const baseConnectionString = process.env.DATABASE_URL;
-    const separator = baseConnectionString.includes('?') ? '&' : '?';
-    const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
-
-    const client = new pg.Client({
-        connectionString: finalConnectionString,
-        ssl: { rejectUnauthorized: false }
-    });
-
-    // 3. استقبال البيانات والـ Action
+    // 2. استقبال البيانات
     const { action, id, debtId, debtData, debt, updates, companyName, company_name } = req.body;
     let targetSchema = req.headers['x-tenant-schema'];
 
-    // التقاط كائن البيانات الصحيح بمرونة عالية
     const d = debtData || debt || updates || req.body.data || req.body || {}; 
     const finalId = id || debtId || d.id;
-    
-    // التقاط اسم الشركة القادم من البودي بشكل مرن
     const finalCompanyName = companyName || company_name || d.companyName || d.company_name;
 
-    // 💡 الإصلاح الجوهري: نعتمد حصراً على اسم الشركة لتحديد السكيمّا وليس على الـ userId
-    if (!targetSchema || targetSchema.trim() === '') {
+    // 3. تحديد وتطهير السكيمّا
+    if (!targetSchema || !targetSchema.trim()) {
         if (finalCompanyName) {
             targetSchema = `schema_${finalCompanyName.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()}`;
         } else {
             return res.status(400).json({ 
                 success: false, 
-                error: 'اسم الشركة مطلوب لتحديد السكيمّا المستهدفة لحفظ البيانات.' 
+                error: 'اسم الشركة مطلوب لتحديد السكيمّا المستهدفة.' 
             });
         }
     }
 
+    const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
+    
+    // سحب عميل من الـ Pool
+    const client = await pool.connect();
+
     try {
-        await client.connect();
-        
-        // 4. معالجة وتفعيل السكيمّا الخاصة بالشركة المستهدفة حصراً
-        const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-        
-        // نستخدم الميزة لفتح السكيمّا الحالية وضبط المسار إليها مباشرة دون تشتت البيانات
+        // 4. ضبط السكيمّا وإنشاء الجدول
         await client.query(`CREATE SCHEMA IF NOT EXISTS "${cleanSchema}"`);
         await client.query(`SET search_path TO "${cleanSchema}"`);
         
-        // تأكيد إنشاء الجدول بداخل السكيمّا الخاصة بالشركة قبل تنفيذ أي استعلام
         await client.query(`
             CREATE TABLE IF NOT EXISTS debts (
                 id TEXT PRIMARY KEY,
@@ -81,20 +73,22 @@ export default async function handler(req, res) {
         if (action === 'ADD' || action === 'INSERT' || action === 'UPDATE') {
             const activeId = finalId || `debt_${Date.now()}`;
             const type = d.type || 'owed_to_me';
-            const personName = d.personName || d.person_name || d.person_Name || 'غير محدد';
+            const personName = d.personName || d.person_name || 'غير محدد';
             const phone = d.phone || d.personPhone || d.person_phone || null;
             const amount = parseFloat(d.amount) || 0;
             const currency = d.currency || 'DZD';
             const notes = d.notes || null;
             const status = d.status || 'pending';
-            const isScheduled = d.isScheduled !== undefined ? d.isScheduled : (d.is_scheduled || false);
+            const isScheduled = d.isScheduled !== undefined ? Boolean(d.isScheduled) : Boolean(d.is_scheduled);
             const scheduleType = d.scheduleType || d.schedule_type || null;
-            const installmentsCount = parseInt(d.installmentsCount) || parseInt(d.installments_count) || 0;
+            const installmentsCount = parseInt(d.installmentsCount || d.installments_count, 10) || 0;
 
             const cleanDate = (dateVal) => {
-                if (!dateVal || dateVal.toString().trim() === '' || dateVal.toString().includes('Invalid')) return null;
-                return dateVal;
+                if (!dateVal) return null;
+                const d = new Date(dateVal);
+                return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0];
             };
+
             const dueDate = cleanDate(d.dueDate || d.due_date);
             const firstPaymentDate = cleanDate(d.firstPaymentDate || d.first_payment_date);
 
@@ -106,7 +100,6 @@ export default async function handler(req, res) {
                     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                     RETURNING *;
                 `;
-                params = [activeId, type, personName, phone, amount, currency, dueDate, notes, status, isScheduled, scheduleType, installmentsCount, firstPaymentDate];
             } else {
                 query = `
                     UPDATE debts SET 
@@ -115,8 +108,8 @@ export default async function handler(req, res) {
                     WHERE id = $1
                     RETURNING *;
                 `;
-                params = [activeId, type, personName, phone, amount, currency, dueDate, notes, status, isScheduled, scheduleType, installmentsCount, firstPaymentDate];
             }
+            params = [activeId, type, personName, phone, amount, currency, dueDate, notes, status, isScheduled, scheduleType, installmentsCount, firstPaymentDate];
 
         } else if (action === 'DELETE') {
             if (!finalId) return res.status(400).json({ success: false, error: 'المعرف id مطلوب' });
@@ -133,6 +126,7 @@ export default async function handler(req, res) {
         console.error(`[DATABASE ERROR ON ${action}]:`, error);
         return res.status(500).json({ success: false, error: error.message });
     } finally {
-        await client.end().catch(err => console.error('Error closing client:', err));
+        // إعادة العميل للـ Pool بدلاً من إغلاقه
+        client.release();
     }
 }
