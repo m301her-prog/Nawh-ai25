@@ -1,89 +1,72 @@
 import pg from 'pg';
 
+// إدارة الاتصالات باستخدام Pool لمنع تمدد وإغلاق الاتصالات بشكل مفرط
+const pool = new pg.Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: true }
+});
+
 export default async function handler(req, res) {
     // 1. إعدادات CORS
-    res.setHeader('Access-Control-Allow-Credentials', true);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
     res.setHeader(
         'Access-Control-Allow-Headers',
-        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-tenant-schema, tenant, user-id'
+        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, x-tenant-schema, tenant'
     );
 
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
-    // 2. الاتصال بـ Neon Postgres
-    const baseConnectionString = process.env.DATABASE_URL;
-    if (!baseConnectionString) {
-        return res.status(500).json({ success: false, error: 'DATABASE_URL غير معرف' });
+    // 2. تحليل جسم الطلب والمعاملات
+    const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+    const queryParams = req.query || {};
+    const d = body.debtData || body.debt || body.updates || body.data || body;
+
+    // 3. استخراج المعرف (ID)
+    const rawId = body.id || body.debtId || d.id || queryParams.id;
+    const finalId = rawId ? String(rawId).trim() : null;
+
+    if (!finalId) {
+        return res.status(400).json({ 
+            success: false, 
+            error: 'المعرف id مطلوب لتنفيذ عملية الحذف.' 
+        });
     }
 
-    const separator = baseConnectionString.includes('?') ? '&' : '?';
-    const finalConnectionString = `${baseConnectionString}${separator}sslmode=verify-full`;
+    // 4. استخراج اسم الشركة وتحديد السكيمّا بطريقة مطابقة لكود الحفظ
+    let targetSchema = req.headers['x-tenant-schema'] || req.headers['tenant'];
+    const finalCompanyName = body.companyName || body.company_name || d.companyName || d.company_name || queryParams.companyName;
 
-    const client = new pg.Client({
-        connectionString: finalConnectionString,
-        ssl: { rejectUnauthorized: false }
-    });
-
-    try {
-        await client.connect();
-
-        // 3. التقاط الـ ID والبيانات بجميع الصيغ الممكنة
-        const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-        const queryParams = req.query || {};
-
-        // استخراج الـ ID والتأكد من تحويله لنص لمطابقة نوع الحقل في Postgres
-        const rawId = body.id || body.debtId || body.data?.id || body.debt?.id || queryParams.id;
-        const finalId = rawId ? String(rawId).trim() : null;
-
-        if (!finalId) {
+    if (!targetSchema || !targetSchema.trim()) {
+        if (finalCompanyName) {
+            targetSchema = `schema_${finalCompanyName.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase()}`;
+        } else {
             return res.status(400).json({ 
                 success: false, 
-                error: 'المعرف id مطلوب لتنفيذ عملية الحذف.' 
+                error: 'اسم الشركة مطلوب لتحديد السكيمّا المستهدفة للحذف.' 
             });
         }
+    }
 
-        // 4. تحديد السكيمّا المستهدفة
-        const rawSchema = 
-            req.headers['x-tenant-schema'] || 
-            req.headers['tenant'] ||
-            body.schemaName || 
-            body.companyName || 
-            body.company_name ||
-            body.data?.companyName ||
-            queryParams.companyName;
+    const cleanSchema = targetSchema.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
 
-        const userId = body.userId || queryParams.userId || req.headers['user-id'];
+    // 5. سحب اتصال من الـ Pool والتنفيذ
+    const client = await pool.connect();
 
-        let targetSchema = '';
+    try {
+        // ضبط المسار للسكيمّا المحددة
+        await client.query(`SET search_path TO "${cleanSchema}"`);
 
-        if (rawSchema) {
-            let cleanName = String(rawSchema).replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-            if (cleanName.startsWith('schema_')) cleanName = cleanName.replace('schema_', '');
-            targetSchema = `schema_${cleanName}`;
-        } else if (userId) {
-            const userRes = await client.query('SELECT company_name FROM public.app_users WHERE id = $1 LIMIT 1', [userId]);
-            if (userRes.rows.length > 0 && userRes.rows[0].company_name) {
-                let cleanCompany = userRes.rows[0].company_name.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-                if (cleanCompany.startsWith('schema_')) cleanCompany = cleanCompany.replace('schema_', '');
-                targetSchema = `schema_${cleanCompany}`;
-            }
-        }
-
-        if (!targetSchema) targetSchema = 'public';
-
-        // 5. ضبط السكيمّا وتنفيذ استعلام الحذف الشامل (مع تحويل الـ ID لنص)
-        await client.query(`SET search_path TO "${targetSchema}", public`);
-        
+        // تنفيذ عملية الحذف
         const deleteQuery = `DELETE FROM debts WHERE id::text = $1::text RETURNING *;`;
         const result = await client.query(deleteQuery, [finalId]);
 
         if (result.rowCount === 0) {
             return res.status(404).json({ 
                 success: false, 
-                message: `لم يتم العثور على العنصر رقم (${finalId}) في السكيمّا (${targetSchema})، قد يكون محذوفاً بالفعل.` 
+                message: `لم يتم العثور على العنصر رقم (${finalId}) في السكيمّا (${cleanSchema})، قد يكون محذوفاً بالفعل.` 
             });
         }
 
@@ -105,6 +88,7 @@ export default async function handler(req, res) {
 
         return res.status(500).json({ success: false, error: 'فشل في تنفيذ الحذف: ' + error.message });
     } finally {
-        await client.end().catch(err => console.error('Error closing client:', err));
+        // إرجاع الاتصال للـ Pool
+        client.release();
     }
 }
