@@ -51,6 +51,52 @@ export default function Home() {
   const [installmentAmount, setInstallmentAmount] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // --- دالة مزامنة البيانات غير المحفوظة عند عودة النت ---
+  const syncOfflineData = async () => {
+    const offlineQueue = JSON.parse(localStorage.getItem('pending_offline_debts') || '[]');
+    if (offlineQueue.length === 0) return;
+
+    const remainingQueue = [];
+
+    for (const item of offlineQueue) {
+      try {
+        const response = await fetch('/api/your-backend-endpoint', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-tenant-schema': item.tenantSchema || reqHeaderSchema || ''
+          },
+          body: JSON.stringify(item)
+        });
+
+        const result = await response.json();
+        if (!result.success) {
+          remainingQueue.push(item);
+        }
+      } catch (err) {
+        remainingQueue.push(item);
+      }
+    }
+
+    localStorage.setItem('pending_offline_debts', JSON.stringify(remainingQueue));
+  };
+
+  // تفعيل المزامنة عند فتح الصفحة وعند عودة الاتصال بالنت
+  useEffect(() => {
+    if (navigator.onLine) {
+      syncOfflineData();
+    }
+
+    const handleOnline = () => {
+      syncOfflineData();
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
+
   useEffect(() => {
     if (!notificationsEnabled) return;
 
