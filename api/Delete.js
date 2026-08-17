@@ -48,27 +48,16 @@ async function diagnoseNotFoundReason(client, targetSchema, targetId, targetName
             diagnostics.possibleReason = `العنصر غير موجود في السكيمّا (${targetSchema}). يرجى التأكد من الـ ID أو الاسم المُرسل ومقارنته بالعينة المخزنة.`;
         }
 
-        // 4. البحث عن العنصر في باقي السكيمات المتاحة لتحديد إذا تم حفظه في مكان آخر بالخطأ
-        let searchQueryOther = '';
-        let searchParamsOther = [];
-
-        if (targetId) {
-            searchQueryOther = `
-                SELECT table_schema, id, person_name 
-                FROM information_schema.tables t
-                JOIN public.debts d ON true -- fallback check
-                WHERE t.table_name = 'debts'
-            `; // استعلام عام للبحث عبر السكيمات
-            
-            // بحث سريع في السكيمات الشائعة (مثل public)
-            const otherCheck = await client.query(
-                `SELECT 'public' as schema_name FROM public.debts WHERE id = $1 OR id LIKE $2 LIMIT 1`,
-                [targetId, `%${targetId}%`]
+        // 4. البحث عن العنصر في السكيمّا العامّة (public) للتحقق مما إذا كان مخزناً هناك
+        if (targetId && targetSchema !== 'public') {
+            const publicCheck = await client.query(
+                `SELECT id FROM public.debts WHERE id::text = $1 LIMIT 1`,
+                [targetId]
             ).catch(() => ({ rows: [] }));
 
-            if (otherCheck.rows.length > 0) {
+            if (publicCheck.rows.length > 0) {
                 diagnostics.foundInOtherSchemas.push('public');
-                diagnostics.possibleReason = `العنصر موجود في السكيمّا (public) وليس في السكيمّا المستهدفة (${targetSchema}). ينبغي مراجعة تحديد السكيمّا (companyName/userId).`;
+                diagnostics.possibleReason = `العنصر موجود في السكيمّا (public) وليس في السكيمّا المستهدفة (${targetSchema}). يرجى التثبت من تحديد (companyName / userId).`;
             }
         }
 
@@ -81,7 +70,7 @@ async function diagnoseNotFoundReason(client, targetSchema, targetId, targetName
 
 export default async function handler(request, response) {
     // 1. إعدادات CORS
-    response.setHeader('Access-Control-Allow-Credentials', true);
+    response.setHeader('Access-Control-Allow-Credentials', 'true');
     response.setHeader('Access-Control-Allow-Origin', '*');
     response.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
     response.setHeader(
@@ -149,7 +138,7 @@ export default async function handler(request, response) {
             if (cleanName.startsWith('schema_')) cleanName = cleanName.replace('schema_', '');
             targetSchema = `schema_${cleanName}`;
         } else if (userId) {
-            const userRes = await client.query('SELECT company_name FROM public.app_users WHERE id = $1 LIMIT 1', [userId]);
+            const userRes = await client.query('SELECT company_name FROM public.app_users WHERE id = $1 LIMIT 1', [userId]).catch(() => ({ rows: [] }));
             if (userRes.rows.length > 0 && userRes.rows[0].company_name) {
                 let cleanCompany = userRes.rows[0].company_name.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
                 if (cleanCompany.startsWith('schema_')) cleanCompany = cleanCompany.replace('schema_', '');
@@ -159,25 +148,25 @@ export default async function handler(request, response) {
 
         if (!targetSchema) targetSchema = 'public';
 
-        // 5. ضبط السكيمّا
+        // 5. ضبط السكيمّا وضمان وجود الجدول
         await client.query(`CREATE SCHEMA IF NOT EXISTS "${targetSchema}"`);
         await client.query(`SET search_path TO "${targetSchema}", public`);
 
-        // 6. تنفيذ الحذف بنظام البحث المزدوج والمرن
+        // 6. تنفيذ الحذف بأمان (تحويل الـ ID لـ Text لتفادي مشاكل الأنواع)
         let deleteQuery = '';
         let queryParamsArr = [];
 
         if (targetId) {
-            deleteQuery = `DELETE FROM debts WHERE id = $1 OR id LIKE $2 RETURNING *;`;
+            deleteQuery = `DELETE FROM "${targetSchema}".debts WHERE id::text = $1 OR id::text LIKE $2 RETURNING *;`;
             queryParamsArr = [targetId, `%${targetId}%`];
         } else {
-            deleteQuery = `DELETE FROM debts WHERE LOWER(TRIM(person_name)) = LOWER(TRIM($1)) RETURNING *;`;
+            deleteQuery = `DELETE FROM "${targetSchema}".debts WHERE LOWER(TRIM(person_name)) = LOWER(TRIM($1)) RETURNING *;`;
             queryParamsArr = [targetName];
         }
 
         const result = await client.query(deleteQuery, queryParamsArr);
 
-        // إذا فشل الحذف (404) ننتقل لتشغيل دالة التشخيص
+        // إذا لم يُحذف أي صف (404)، يتم تشخيص السبب بدقة
         if (result.rowCount === 0) {
             const diagnostics = await diagnoseNotFoundReason(client, targetSchema, targetId, targetName);
 
