@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { useNavigate } from 'react-router-dom';
-import { deleteDebt } from '../services/neonService'; // استدعاء دالة الحذف
 import {
   TrendingUp,
   TrendingDown,
@@ -103,7 +102,7 @@ export default function DebtList() {
   };
 
   /**
-   * دالة معالجة الحذف التشخيصية
+   * دالة معالجة الحذف باستخدام طلب HTTP مباشر
    */
   const handleDeleteDebt = async (e, debt) => {
     e.stopPropagation();
@@ -124,17 +123,25 @@ export default function DebtList() {
       const companyName = debt.companyName || debt.company_name || currentUser?.companyName || currentUser?.company_name || '';
       const userId = currentUser?.id || currentUser?._id || 'guest';
 
-      // إرسال طلب الحذف
-      const res = await deleteDebt({
-        id: debtIdToDelete,
-        personName: personName,
-        companyName: companyName,
-        userId: userId
+      // إرسال طلب HTTP DELETE إلى الرابط المستهدف
+      const response = await fetch('https://nawh-ai25.vercel.app/api/Delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: debtIdToDelete,
+          personName: personName,
+          companyName: companyName,
+          userId: userId
+        }),
       });
 
-      // التحقق مما إذا رجعت الدالة باستجابة غير ناجحة بها تفاصيل تشخيصية
-      if (res && res.success === false) {
-        let alertMsg = `⚠️ فشل الحذف:\n${res.message || 'العنصر غير موجود'}\n\n`;
+      const res = await response.json();
+
+      // التحقق مما إذا رجع الـ API باستجابة غير ناجحة
+      if (!response.ok || (res && res.success === false)) {
+        let alertMsg = `⚠️ فشل الحذف:\n${res.message || res.error || 'العنصر غير موجود'}\n\n`;
         if (res.debugInfo) {
           alertMsg += `🔍 السبب المباشر: ${res.debugInfo.reason || 'غير محدد'}\n`;
           alertMsg += `📁 السكيمّا المستهدفة: ${res.debugInfo.targetSchema}\n`;
@@ -155,24 +162,7 @@ export default function DebtList() {
 
     } catch (error) {
       console.error('Error deleting debt:', error);
-
-      // استخراج تفاصيل خطأ الـ API
-      const responseData = error.response?.data || error.data;
-      if (responseData) {
-        let alertMsg = `❌ خطأ (${error.response?.status || 404}):\n${responseData.message || responseData.error}\n\n`;
-        
-        if (responseData.debugInfo) {
-          alertMsg += `🔍 السبب التشخيصي: ${responseData.debugInfo.reason}\n`;
-          alertMsg += `📁 السكيمّا: ${responseData.debugInfo.targetSchema}\n`;
-          if (responseData.debugInfo.diagnostics?.sampleRecords?.length > 0) {
-            alertMsg += `\n📋 عينة السجلات الموجودة:\n` + 
-              responseData.debugInfo.diagnostics.sampleRecords.map(r => `- ID: ${r.id} | Name: ${r.person_name}`).join('\n');
-          }
-        }
-        alert(alertMsg);
-      } else {
-        alert(`❌ حدث خطأ في الاتصال بالسيرفر: ${error.message}`);
-      }
+      alert(`❌ حدث خطأ في الاتصال بالسيرفر: ${error.message}`);
     } finally {
       setIsDeleting(false);
     }
