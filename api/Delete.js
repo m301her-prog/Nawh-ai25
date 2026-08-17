@@ -68,6 +68,23 @@ async function diagnoseNotFoundReason(client, targetSchema, targetId, targetName
     return diagnostics;
 }
 
+/**
+ * دالة لتنظيف وتنسيق اسم السكيمّا بدعم اللغة العربية والأرقام والرموز
+ */
+function normalizeSchemaName(inputName) {
+    if (!inputName) return '';
+    let name = String(inputName).trim();
+    if (name.startsWith('schema_')) {
+        name = name.replace(/^schema_/, '');
+    }
+    // تحويل المسافات والرموز المتروكة إلى _
+    name = name.replace(/[\s\W]+/g, '_').toLowerCase();
+    // إزالة الشُرَط المتروكة في بداية أو نهاية النص
+    name = name.replace(/^_+|_+$/g, '');
+    
+    return name ? `schema_${name}` : '';
+}
+
 export default async function handler(request, response) {
     // 1. إعدادات CORS
     response.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -131,28 +148,24 @@ export default async function handler(request, response) {
 
         const userId = body.userId || d.userId || queryParams.userId || request.headers['user-id'];
 
-        let targetSchema = '';
+        let targetSchema = normalizeSchemaName(rawSchema);
 
-        if (rawSchema) {
-            let cleanName = String(rawSchema).replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-            if (cleanName.startsWith('schema_')) cleanName = cleanName.replace('schema_', '');
-            targetSchema = `schema_${cleanName}`;
-        } else if (userId) {
-            const userRes = await client.query('SELECT company_name FROM public.app_users WHERE id = $1 LIMIT 1', [userId]).catch(() => ({ rows: [] }));
+        // جلب السكيمّا الخاصة بالمستخدم إذا لم تكن ممررة بشكل مباشر
+        if (!targetSchema && userId && userId !== 'guest') {
+            const userRes = await client.query('SELECT company_name FROM public.app_users WHERE id::text = $1 LIMIT 1', [String(userId)]).catch(() => ({ rows: [] }));
             if (userRes.rows.length > 0 && userRes.rows[0].company_name) {
-                let cleanCompany = userRes.rows[0].company_name.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase();
-                if (cleanCompany.startsWith('schema_')) cleanCompany = cleanCompany.replace('schema_', '');
-                targetSchema = `schema_${cleanCompany}`;
+                targetSchema = normalizeSchemaName(userRes.rows[0].company_name);
             }
         }
 
+        // استخدام السكيمّا الافتراضية إذا تعذر الوصول لسكيمّا محددة
         if (!targetSchema) targetSchema = 'public';
 
-        // 5. ضبط السكيمّا وضمان وجود الجدول
+        // 5. ضمان وجود السكيمّا وضبط search_path
         await client.query(`CREATE SCHEMA IF NOT EXISTS "${targetSchema}"`);
         await client.query(`SET search_path TO "${targetSchema}", public`);
 
-        // 6. تنفيذ الحذف بأمان (تحويل الـ ID لـ Text لتفادي مشاكل الأنواع)
+        // 6. تنفيذ الحذف
         let deleteQuery = '';
         let queryParamsArr = [];
 
@@ -164,9 +177,38 @@ export default async function handler(request, response) {
             queryParamsArr = [targetName];
         }
 
-        const result = await client.query(deleteQuery, queryParamsArr);
+        let result = await client.query(deleteQuery, queryParamsArr);
 
-        // إذا لم يُحذف أي صف (404)، يتم تشخيص السبب بدقة
+        // 7. الآلية البديلة (Fallback): إذا لم يُعثر على الدين، ابحث في السكيمّات الأخرى المتاحة
+        if (result.rowCount === 0 && targetId) {
+            const allSchemasRes = await client.query(`
+                SELECT table_schema 
+                FROM information_schema.tables 
+                WHERE table_name = 'debts' AND table_schema NOT IN ('pg_catalog', 'information_schema')
+            `);
+
+            for (const row of allSchemasRes.rows) {
+                const schemaToSearch = row.table_schema;
+                if (schemaToSearch === targetSchema) continue;
+
+                const fallbackDelete = await client.query(
+                    `DELETE FROM "${schemaToSearch}".debts WHERE id::text = $1 OR id::text LIKE $2 RETURNING *;`,
+                    [targetId, `%${targetId}%`]
+                ).catch(() => ({ rowCount: 0, rows: [] }));
+
+                if (fallbackDelete.rowCount > 0) {
+                    return response.status(200).json({
+                        success: true,
+                        message: `تم الحذف بنجاح من السكيمّا البديلة (${schemaToSearch})`,
+                        deletedCount: fallbackDelete.rowCount,
+                        deletedRows: fallbackDelete.rows,
+                        actualSchema: schemaToSearch
+                    });
+                }
+            }
+        }
+
+        // إذا تعذر الحذف بالكامل، يتم تشغيل التشخيص وتقديم التفاصيل
         if (result.rowCount === 0) {
             const diagnostics = await diagnoseNotFoundReason(client, targetSchema, targetId, targetName);
 
