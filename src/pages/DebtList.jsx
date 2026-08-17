@@ -18,14 +18,9 @@ import {
   ArrowLeft,
   X,
   SortAsc,
-  Trash2 // تم إضافة أيقونة الحذف
+  Trash2
 } from 'lucide-react';
 
-/**
- * Debt List Page
- * Displays all debts with search, filter, and sort functionality
- * Integrates with WhatsApp for quick reminders
- */
 export default function DebtList() {
   const { t, debts, language, openWhatsApp, darkMode, currentUser, refreshDebts } = useApp();
   const navigate = useNavigate();
@@ -35,6 +30,7 @@ export default function DebtList() {
   const [filterStatus, setFilterStatus] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [showFilters, setShowFilters] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Filter and sort debts
   const filteredDebts = useMemo(() => {
@@ -51,7 +47,6 @@ export default function DebtList() {
       return true;
     });
 
-    // Sort
     switch (sortBy) {
       case 'newest':
         return result.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -107,40 +102,82 @@ export default function DebtList() {
     openWhatsApp(debt.phone || '', message);
   };
 
-  // دالة التعامل مع حذف الدين المتوافقة تماماً مع الباك إند
+  /**
+   * دالة معالجة الحذف التشخيصية
+   */
   const handleDeleteDebt = async (e, debt) => {
-    e.stopPropagation(); // منع الانتقال لصفحة تفاصيل الدين
+    e.stopPropagation();
+    if (isDeleting) return;
+
     const nameDisplay = debt.personName || debt.person_name || 'هذا الدين';
     const confirmMessage = language === 'ar' 
       ? `هل أنت تأكد من رغبتك في حذف دين "${nameDisplay}"؟` 
       : 'Are you sure you want to delete this debt?';
       
-    if (window.confirm(confirmMessage)) {
-      try {
-        // استخراج البيانات المتاحة للحذف (سواء بالأيدى أو الاسم)
-        const debtIdToDelete = debt.id || debt._id || debt.debt_id || debt.debtId || '';
-        const personName = debt.personName || debt.person_name || '';
-        const companyName = debt.companyName || debt.company_name || currentUser?.companyName || currentUser?.company_name || '';
-        const userId = currentUser?.id || currentUser?._id || 'guest';
+    if (!window.confirm(confirmMessage)) return;
 
-        // إرسال الكائن المحتوي على المعلومات ليتوافق مع خدمة neonService والباك إند
-        await deleteDebt({
-          id: debtIdToDelete,
-          personName: personName,
-          companyName: companyName,
-          userId: userId
-        });
-        
-        if (refreshDebts) {
-          await refreshDebts(); // تحديث القائمة بعد نجاح الحذف
+    setIsDeleting(true);
+
+    try {
+      const debtIdToDelete = debt.id || debt._id || debt.debt_id || debt.debtId || '';
+      const personName = debt.personName || debt.person_name || '';
+      const companyName = debt.companyName || debt.company_name || currentUser?.companyName || currentUser?.company_name || '';
+      const userId = currentUser?.id || currentUser?._id || 'guest';
+
+      // إرسال طلب الحذف
+      const res = await deleteDebt({
+        id: debtIdToDelete,
+        personName: personName,
+        companyName: companyName,
+        userId: userId
+      });
+
+      // التحقق مما إذا رجعت الدالة باستجابة غير ناجحة بها تفاصيل تشخيصية
+      if (res && res.success === false) {
+        let alertMsg = `⚠️ فشل الحذف:\n${res.message || 'العنصر غير موجود'}\n\n`;
+        if (res.debugInfo) {
+          alertMsg += `🔍 السبب المباشر: ${res.debugInfo.reason || 'غير محدد'}\n`;
+          alertMsg += `📁 السكيمّا المستهدفة: ${res.debugInfo.targetSchema}\n`;
+          if (res.debugInfo.diagnostics?.sampleRecords?.length > 0) {
+            alertMsg += `\n📋 عينة من المتاح بالجدول:\n` + 
+              res.debugInfo.diagnostics.sampleRecords.map(r => `- ID: ${r.id} | Name: ${r.person_name}`).join('\n');
+          }
         }
-      } catch (error) {
-        console.error('Error deleting debt:', error);
+        alert(alertMsg);
+        return;
       }
+
+      // في حالة النجاح
+      alert('✅ تم حذف الدين بنجاح.');
+      if (refreshDebts) {
+        await refreshDebts();
+      }
+
+    } catch (error) {
+      console.error('Error deleting debt:', error);
+
+      // استخراج تفاصيل خطأ الـ API
+      const responseData = error.response?.data || error.data;
+      if (responseData) {
+        let alertMsg = `❌ خطأ (${error.response?.status || 404}):\n${responseData.message || responseData.error}\n\n`;
+        
+        if (responseData.debugInfo) {
+          alertMsg += `🔍 السبب التشخيصي: ${responseData.debugInfo.reason}\n`;
+          alertMsg += `📁 السكيمّا: ${responseData.debugInfo.targetSchema}\n`;
+          if (responseData.debugInfo.diagnostics?.sampleRecords?.length > 0) {
+            alertMsg += `\n📋 عينة السجلات الموجودة:\n` + 
+              responseData.debugInfo.diagnostics.sampleRecords.map(r => `- ID: ${r.id} | Name: ${r.person_name}`).join('\n');
+          }
+        }
+        alert(alertMsg);
+      } else {
+        alert(`❌ حدث خطأ في الاتصال بالسيرفر: ${error.message}`);
+      }
+    } finally {
+      setIsDeleting(false);
     }
   };
 
-  // Calculate totals
   const totalOwedToMe = debts
     .filter(d => d.type === 'owed_to_me' && d.status !== 'paid')
     .reduce((sum, d) => sum + d.amount, 0);
@@ -193,7 +230,6 @@ export default function DebtList() {
         {showFilters && (
           <div className="mt-4 p-4 rounded-xl bg-white/10 backdrop-blur-sm space-y-3">
             <div className="flex gap-2 flex-wrap">
-              {/* Type Filter */}
               <select
                 value={filterType}
                 onChange={(e) => setFilterType(e.target.value)}
@@ -204,7 +240,6 @@ export default function DebtList() {
                 <option value="i_owe">{t('iOwe')}</option>
               </select>
 
-              {/* Status Filter */}
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
@@ -216,7 +251,6 @@ export default function DebtList() {
               </select>
             </div>
 
-            {/* Sort */}
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
@@ -270,7 +304,6 @@ export default function DebtList() {
             >
               <div className="p-4">
                 <div className="flex items-start gap-4">
-                  {/* Type Icon */}
                   <div className={`w-14 h-14 rounded-xl flex items-center justify-center ${
                     debt.type === 'owed_to_me'
                       ? 'bg-emerald-100 dark:bg-emerald-900/30'
@@ -283,7 +316,6 @@ export default function DebtList() {
                     )}
                   </div>
 
-                  {/* Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div>
@@ -303,7 +335,6 @@ export default function DebtList() {
                       </div>
                     </div>
 
-                    {/* Status & Actions */}
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`text-xs px-3 py-1 rounded-full font-medium flex items-center gap-1 ${getStatusColor(debt)}`}>
@@ -317,7 +348,6 @@ export default function DebtList() {
                         )}
                       </div>
 
-                      {/* Quick Actions & Delete Button */}
                       <div className="flex items-center gap-1">
                         {debt.phone && (
                           <>
@@ -339,10 +369,10 @@ export default function DebtList() {
                           </>
                         )}
                         
-                        {/* زر الحذف الأيقوني لكل دين */}
                         <button
                           onClick={(e) => handleDeleteDebt(e, debt)}
-                          className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition"
+                          disabled={isDeleting}
+                          className="p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500 transition disabled:opacity-50"
                           title="حذف الدين"
                         >
                           <Trash2 className="w-5 h-5" />
@@ -352,7 +382,6 @@ export default function DebtList() {
                   </div>
                 </div>
 
-                {/* Notes Preview */}
                 {debt.notes && (
                   <p className="mt-3 text-sm text-gray-500 dark:text-gray-400 line-clamp-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-2">
                     {debt.notes}
