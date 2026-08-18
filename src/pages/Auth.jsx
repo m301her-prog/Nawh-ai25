@@ -76,6 +76,17 @@ export default function Auth() {
         );
       }
 
+      // 🛑 فحص حالة تعطيل الحساب من بيانات المستخدم
+      if (
+        loggedUser?.is_active === false || 
+        loggedUser?.status === 'disabled' || 
+        loggedUser?.is_disabled === true ||
+        loggedUser?.status === 'inactive'
+      ) {
+        setErrors({ submit: 'ACCOUNT_DISABLED' });
+        return;
+      }
+
       const cleanEmail = formData.email.trim().toLowerCase();
       const cleanName = formData.name ? formData.name.trim() : '';
 
@@ -93,7 +104,17 @@ export default function Auth() {
         navigate('/');
       }
     } catch (error) {
-      setErrors({ submit: error.message });
+      const errorMsg = error.message || '';
+      if (
+        errorMsg.toLowerCase().includes('disabled') || 
+        errorMsg.includes('معطل') || 
+        errorMsg.toLowerCase().includes('banned') ||
+        errorMsg.toLowerCase().includes('inactive')
+      ) {
+        setErrors({ submit: 'ACCOUNT_DISABLED' });
+      } else {
+        setErrors({ submit: errorMsg });
+      }
     }
   };
 
@@ -315,7 +336,33 @@ export default function Auth() {
 
             {errors.submit && (
               <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-center">
-                {errors.submit}
+                {errors.submit === 'ACCOUNT_DISABLED' ? (
+                  <div className="space-y-3">
+                    <p className="font-bold text-base text-red-600 dark:text-red-400">
+                      {language === 'ar' ? '⚠️ هذا الحساب معطل حالياً' : language === 'fr' ? '⚠️ Ce compte est désactivé' : '⚠️ This account is disabled'}
+                    </p>
+                    <p className="text-xs text-gray-600 dark:text-gray-300">
+                      {language === 'ar'
+                        ? 'يرجى التواصل مع الإدارة عبر الواتساب لتفعيل حسابك:'
+                        : language === 'fr'
+                        ? 'Veuillez contacter l\'administration via WhatsApp pour activer votre compte:'
+                        : 'Please contact administration via WhatsApp to activate your account:'}
+                    </p>
+                    <a
+                      href={`https://wa.me/201091288031?text=${encodeURIComponent('مرحباً، أود التواصل مع الإدارة لتفعيل حسابي المعطل: ' + formData.email)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-sm transition-all shadow-md mt-1"
+                    >
+                      <span>💬</span>
+                      <span>
+                        {language === 'ar' ? 'التواصل مع الإدارة عبر الواتساب' : language === 'fr' ? 'Contacter l\'administration via WhatsApp' : 'Contact Administration via WhatsApp'}
+                      </span>
+                    </a>
+                  </div>
+                ) : (
+                  <p>{errors.submit}</p>
+                )}
               </div>
             )}
 
