@@ -108,6 +108,7 @@ export default function Auth() {
       if (
         errorMsg.toLowerCase().includes('disabled') || 
         errorMsg.includes('معطل') || 
+        errorMsg.includes('غلق') ||
         errorMsg.toLowerCase().includes('banned') ||
         errorMsg.toLowerCase().includes('inactive')
       ) {
@@ -339,24 +340,20 @@ export default function Auth() {
                 {errors.submit === 'ACCOUNT_DISABLED' ? (
                   <div className="space-y-3">
                     <p className="font-bold text-base text-red-600 dark:text-red-400">
-                      {language === 'ar' ? '⚠️ هذا الحساب معطل حالياً' : language === 'fr' ? '⚠️ Ce compte est désactivé' : '⚠️ This account is disabled'}
+                      {language === 'ar' ? 'تم غلق هذا الحساب، يرجى التواصل مع الإدارة' : language === 'fr' ? 'Ce compte est désactivé' : 'This account is disabled'}
                     </p>
-                    <p className="text-xs text-gray-600 dark:text-gray-300">
-                      {language === 'ar'
-                        ? 'يرجى التواصل مع الإدارة عبر الواتساب لتفعيل حسابك:'
-                        : language === 'fr'
-                        ? 'Veuillez contacter l\'administration via WhatsApp pour activer votre compte:'
-                        : 'Please contact administration via WhatsApp to activate your account:'}
+                    <p className="text-sm font-semibold text-gray-700 dark:text-gray-200 dir-ltr">
+                      📱 واتساب الإدارة: <span className="font-bold text-emerald-600 dark:text-emerald-400 select-all">01091288031</span>
                     </p>
                     <a
-                      href={`https://wa.me/201091288031?text=${encodeURIComponent('مرحباً، أود التواصل مع الإدارة لتفعيل حسابي المعطل: ' + formData.email)}`}
+                      href={`https://wa.me/201091288031?text=${encodeURIComponent('مرحباً، أود التواصل مع الإدارة لتفعيل حسابي المغلق: ' + formData.email)}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center justify-center gap-2 w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-sm transition-all shadow-md mt-1"
                     >
                       <span>💬</span>
                       <span>
-                        {language === 'ar' ? 'التواصل مع الإدارة عبر الواتساب' : language === 'fr' ? 'Contacter l\'administration via WhatsApp' : 'Contact Administration via WhatsApp'}
+                        {language === 'ar' ? 'اضغط هنا للتواصل عبر الواتساب' : language === 'fr' ? 'Contacter via WhatsApp' : 'Contact via WhatsApp'}
                       </span>
                     </a>
                   </div>
