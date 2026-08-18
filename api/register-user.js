@@ -19,15 +19,19 @@ export default async function handler(req, res) {
   });
 
   try {
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    
-    const name = body.name;
-    const companyName = body.companyName || body.company_name;
-    const email = body.email;
-    const password = body.password;
-    const phone = body.phone;
+    let body = req.body;
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch (e) {
+        console.error('Failed to parse body string:', e);
+      }
+    }
 
-    if (!name || !companyName || !email || !password) {
+    const { name, companyName, company_name, email, password, phone } = body || {};
+    const finalCompanyName = companyName || company_name;
+
+    if (!name || !finalCompanyName || !email || !password) {
       return res.status(400).json({ 
         error: 'يرجى ملء جميع الحقول الأساسية (الاسم، اسم الشركة، البريد، كلمة المرور)' 
       });
@@ -60,6 +64,7 @@ export default async function handler(req, res) {
       'SELECT id FROM public.app_users WHERE LOWER(email) = $1 LIMIT 1', 
       [cleanEmail]
     );
+
     if (checkResult.rows.length > 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'هذا البريد الإلكتروني مسجل بالفعل' });
@@ -68,11 +73,11 @@ export default async function handler(req, res) {
     const userId = 'usr_' + Math.random().toString(36).substring(2, 11);
 
     // =========================================================
-    // التعديل الرئيسي: تحديد صلاحية الأدمن وفقاً للبيانات الخاصة بك
+    // تحديد صلاحية الأدمن بشكل آمن يمنع توقف السيرفر
     // =========================================================
-    const isAdmin = cleanEmail === 'nawh@nawh.com' || name.trim() === 'admin301';
+    const isAdmin = cleanEmail === 'nawh@nawh.com' || (name && name.toString().trim() === 'admin301');
 
-    // إذا كان الحساب الأدمن ولم يتم إرسال رقم هاتف من الواجهة، يتم اعتماد رقم الواتساب الافتراضي بمفتاح مصر
+    // إذا كان الحساب الأدمن ولم يتم إرسال رقم هاتف من الواجهة، يتم اعتماد رقم الواتساب الافتراضي
     const finalPhone = phone || (isAdmin ? '201091288031' : '');
 
     const createdAt = new Date().toISOString();
@@ -83,16 +88,17 @@ export default async function handler(req, res) {
     // 4. إنشاء الـ Schema الخاصة بالشركة
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${schemaName}`);
 
-    // 5. إدراج الحساب الجديد في الجدول الرئيسي
+    // 5. إدراج الحساب الجديد في الجدول الرئيسي واسترجاع الحساب الذي تم إنشاؤه
     const insertQuery = `
       INSERT INTO public.app_users (id, name, company_name, email, password, phone, is_admin, active, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, name, company_name, email, phone, is_admin, active, created_at;
     `;
     
-    await client.query(insertQuery, [
+    const insertResult = await client.query(insertQuery, [
       userId, 
       name, 
-      companyName, 
+      finalCompanyName, 
       cleanEmail, 
       password, 
       finalPhone, 
@@ -104,18 +110,30 @@ export default async function handler(req, res) {
     // تأكيد وتنفيذ العمليات
     await client.query('COMMIT');
 
+    const createdUser = insertResult.rows[0];
+
+    // تجميع كائن المستخدم بالصيغتين (is_admin و isAdmin) للتوافق التام مع الواجهة الأمامية (Frontend)
+    const formattedUser = {
+      ...createdUser,
+      companyName: createdUser.company_name,
+      isAdmin: createdUser.is_admin
+    };
+
+    // إرجاع كائن استجابة مكتمل يمنع تعليق "جاري الإنشاء..."
     return res.status(200).json({
+      success: true,
       message: 'تم إنشاء الحساب والـ Schema الخاصة به بنجاح',
       userId: userId,
       schemaName: schemaName,
-      isAdmin: isAdmin
+      isAdmin: isAdmin,
+      user: formattedUser
     });
 
   } catch (error) {
-    await client.query('ROLLBACK');
+    if (client) await client.query('ROLLBACK').catch(() => {});
     console.error('Registration API Error:', error);
-    return res.status(500).json({ error: 'حدث خطأ أثناء إنشاء الحساب والـ Schema' });
+    return res.status(500).json({ error: error.message || 'حدث خطأ أثناء إنشاء الحساب والـ Schema' });
   } finally {
-    await client.end().catch(err => console.error('Error closing client:', err));
+    if (client) await client.end().catch(err => console.error('Error closing client:', err));
   }
 }
