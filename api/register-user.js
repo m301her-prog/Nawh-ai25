@@ -37,7 +37,7 @@ export default async function handler(req, res) {
 
     await client.connect();
 
-    // بداية المعاملة (Transaction) لضمان تنفيذ كل الخطوات أو إغلاقها جميعاً
+    // بداية المعاملة (Transaction) لضمان تنفيذ كل الخطوات
     await client.query('BEGIN');
 
     // 1. إنشاء جدول الحسابات الرئيسي إن لم يكن موجوداً
@@ -56,54 +56,62 @@ export default async function handler(req, res) {
     `);
 
     // 2. التحقق من تكرار البريد
-    const checkResult = await client.query('SELECT id FROM public.app_users WHERE LOWER(email) = $1 LIMIT 1', [cleanEmail]);
+    const checkResult = await client.query(
+      'SELECT id FROM public.app_users WHERE LOWER(email) = $1 LIMIT 1', 
+      [cleanEmail]
+    );
     if (checkResult.rows.length > 0) {
-      await client.query('ROLLBACK'); // إلغاء العملية
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'هذا البريد الإلكتروني مسجل بالفعل' });
     }
 
     const userId = 'usr_' + Math.random().toString(36).substring(2, 11);
-    const isAdmin = cleanEmail === 'admin@debts.dz';
+
+    // =========================================================
+    // التعديل الرئيسي: تحديد صلاحية الأدمن وفقاً للبيانات الخاصة بك
+    // =========================================================
+    const isAdmin = cleanEmail === 'nawh@nawh.com' || name.trim() === 'admin301';
+
+    // إذا كان الحساب الأدمن ولم يتم إرسال رقم هاتف من الواجهة، يتم اعتماد رقم الواتساب الافتراضي بمفتاح مصر
+    const finalPhone = phone || (isAdmin ? '201091288031' : '');
+
     const createdAt = new Date().toISOString();
 
-    // 3. إنشاء اسم Schema فريد ونظيف للشركة (مثلاً: tenant_usr_xxxx)
+    // 3. إنشاء اسم Schema فريد للشركة
     const schemaName = `tenant_${userId}`;
 
     // 4. إنشاء الـ Schema الخاصة بالشركة
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${schemaName}`);
 
-    // 5. (اختياري) إنشاء جداول الشركة داخل الـ Schema الجديدة الخاصة بها
-    /* 
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS ${schemaName}.debts (
-        id SERIAL PRIMARY KEY,
-        amount NUMERIC NOT NULL,
-        description TEXT
-      );
-    `);
-    */
-
-    // 6. إدراج الحساب الجديد في الجدول الرئيسي
+    // 5. إدراج الحساب الجديد في الجدول الرئيسي
     const insertQuery = `
       INSERT INTO public.app_users (id, name, company_name, email, password, phone, is_admin, active, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     `;
     
     await client.query(insertQuery, [
-      userId, name, companyName, cleanEmail, password, phone || '', isAdmin, true, createdAt
+      userId, 
+      name, 
+      companyName, 
+      cleanEmail, 
+      password, 
+      finalPhone, 
+      isAdmin, 
+      true, 
+      createdAt
     ]);
 
-    // تأكيد وتنفيذ كل العمليات في قاعدة البيانات
+    // تأكيد وتنفيذ العمليات
     await client.query('COMMIT');
 
     return res.status(200).json({
       message: 'تم إنشاء الحساب والـ Schema الخاصة به بنجاح',
       userId: userId,
-      schemaName: schemaName
+      schemaName: schemaName,
+      isAdmin: isAdmin
     });
 
   } catch (error) {
-    // في حالة حدوث أي خطأ، يتم التراجع عن جميع التغييرات (عدم إنشاء اسكيما ولا حساب)
     await client.query('ROLLBACK');
     console.error('Registration API Error:', error);
     return res.status(500).json({ error: 'حدث خطأ أثناء إنشاء الحساب والـ Schema' });
