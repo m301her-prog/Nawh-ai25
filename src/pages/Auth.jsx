@@ -62,15 +62,32 @@ export default function Auth() {
     if (!validateForm()) return;
 
     try {
+      let loggedUser = null;
+
       if (isLogin) {
-        await login(formData.email, formData.password);
+        loggedUser = await login(formData.email, formData.password);
       } else {
-        // نمرر البيانات الصافية للدالة، والـ Context سيتولى التعامل مع السيرفر السحابي مباشرة
-        await register(formData.name, formData.email, formData.password, formData.phone, formData.companyName);
+        loggedUser = await register(
+          formData.name,
+          formData.email,
+          formData.password,
+          formData.phone,
+          formData.companyName
+        );
       }
 
-      // فحص نوع الحساب وتوجيهه فوراً إلى مساره الصحيح
-      if (formData.email.trim().toLowerCase() === 'admin@debts.dz') {
+      const cleanEmail = formData.email.trim().toLowerCase();
+      const cleanName = formData.name ? formData.name.trim() : '';
+
+      // 🛑 الفحص المعدل لتوجيه الأدمن تلقائياً إلى /admin
+      const isSystemAdmin = 
+        cleanEmail === 'nawh@nawh.com' || 
+        cleanEmail === 'admin@debts.dz' || 
+        cleanName === 'admin301' ||
+        loggedUser?.is_admin === true ||
+        loggedUser?.isAdmin === true;
+
+      if (isSystemAdmin) {
         navigate('/admin');
       } else {
         navigate('/');
@@ -100,7 +117,6 @@ export default function Auth() {
     });
   };
 
-  // Greeting based on time of day
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return t('goodMorning');
@@ -157,7 +173,6 @@ export default function Auth() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-5">
-            {/* Name - Register only */}
             {!isLogin && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -181,7 +196,6 @@ export default function Auth() {
               </div>
             )}
 
-            {/* Company Name - Register only */}
             {!isLogin && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -205,7 +219,6 @@ export default function Auth() {
               </div>
             )}
 
-            {/* Email */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Mail className="inline w-4 h-4 mr-2" />
@@ -228,7 +241,6 @@ export default function Auth() {
               )}
             </div>
 
-            {/* Phone - Register only */}
             {!isLogin && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -246,7 +258,6 @@ export default function Auth() {
               </div>
             )}
 
-            {/* Password */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 <Lock className="inline w-4 h-4 mr-2" />
@@ -278,7 +289,6 @@ export default function Auth() {
               )}
             </div>
 
-            {/* Confirm Password - Register only */}
             {!isLogin && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -303,14 +313,12 @@ export default function Auth() {
               </div>
             )}
 
-            {/* Submit Error */}
             {errors.submit && (
               <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-center">
                 {errors.submit}
               </div>
             )}
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
@@ -326,7 +334,6 @@ export default function Auth() {
               )}
             </button>
 
-            {/* Toggle Login/Register */}
             <div className="text-center pt-4 border-t border-gray-100 dark:border-gray-700">
               <p className="text-gray-500 dark:text-gray-400">
                 {isLogin ? t('noAccount') : t('hasAccount')}
