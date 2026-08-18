@@ -11,7 +11,9 @@ import {
   Trash2,
   DollarSign,
   Search,
-  Building2
+  Building2,
+  Phone,
+  MessageCircle
 } from 'lucide-react';
 
 /**
@@ -77,7 +79,7 @@ export default function Admin() {
   const activeUsers = localUsers.filter(u => checkIsActive(u)).length;
 
   const formatDate = (dateString) => {
-    const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
+    const locale = language === 'ar' ? 'ar-EG' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Date(dateString).toLocaleDateString(locale, {
       year: 'numeric',
       month: 'short',
@@ -119,10 +121,10 @@ export default function Admin() {
       const data = await response.json();
 
       if (data.success) {
-        // تحديث الحالة محلياً في الواجهة فوراً دون الحاجة لإعادة تحميل الصفحة بالكامل
+        // تحديث الحالة محلياً في الواجهة فوراً
         setLocalUsers(prev => prev.map(u => u.id === userId ? { ...u, active: nextStatus } : u));
         
-        // 🚀 إرسال إشارة الاتصال الخارجي (Capture) للأندرويد
+        // إرسال إشارة الاتصال الخارجي للأندرويد
         triggerAndroidCapture('USER_STATUS_CHANGED', { userId, active: nextStatus });
 
         showNotification(
@@ -149,10 +151,7 @@ export default function Admin() {
     if (confirmed) {
       try {
         await deleteUser(userId);
-        // إزالة من المصفوفة المحلية أيضاً بعد الحذف الناجح
         setLocalUsers(prev => prev.filter(u => u.id !== userId));
-        
-        // إشعار كابتشور بالحذف
         triggerAndroidCapture('USER_DELETED', { userId });
 
         showNotification(
@@ -173,7 +172,8 @@ export default function Admin() {
     return (
       (u.company_name && u.company_name.toLowerCase().includes(searchLower)) ||
       (u.name && u.name.toLowerCase().includes(searchLower)) ||
-      (u.email && u.email.toLowerCase().includes(searchLower))
+      (u.email && u.email.toLowerCase().includes(searchLower)) ||
+      (u.phone && u.phone.includes(searchLower))
     );
   });
 
@@ -198,7 +198,7 @@ export default function Admin() {
             <ArrowLeft className={`w-5 h-5 ${language === 'ar' ? 'rotate-180' : ''}`} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold">{t('admin')}</h1>
+            <h1 className="text-xl font-bold">{t('admin')} (Nawh AI)</h1>
             <p className="text-purple-200 text-sm">{user?.email}</p>
           </div>
           <div className="p-2 rounded-xl bg-white/20">
@@ -242,7 +242,7 @@ export default function Admin() {
           <Search className={`absolute top-3 w-5 h-5 text-gray-400 ${language === 'ar' ? 'right-3' : 'left-3'}`} />
           <input
             type="text"
-            placeholder={language === 'ar' ? 'ابحث باسم الشركة، العميل أو البريد...' : 'Rechercher par entreprise, nom ou e-mail...'}
+            placeholder={language === 'ar' ? 'ابحث باسم الشركة، العميل، الهاتف أو البريد...' : 'Search company, name, phone or email...'}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className={`w-full p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 outline-none transition ${language === 'ar' ? 'pr-10' : 'pl-10'}`}
@@ -271,7 +271,9 @@ export default function Admin() {
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {filteredUsers.map(u => {
                 const isUserActive = checkIsActive(u);
-                const isProtectedAdmin = u.is_admin || u.isAdmin || u.email === 'admin@debts.dz';
+                
+                // 🛑 تم التعديل لتطابق بياناتك المحمية:
+                const isProtectedAdmin = u.is_admin || u.isAdmin || u.email === 'nawh@nawh.com' || u.name === 'admin301';
 
                 return (
                   <div
@@ -298,7 +300,7 @@ export default function Admin() {
                             
                             {isProtectedAdmin && (
                               <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-100 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400">
-                                مدير النظام
+                                مدير النظام (Admin)
                               </span>
                             )}
                             
@@ -317,9 +319,18 @@ export default function Admin() {
                             {language === 'ar' ? 'المدير:' : 'Admin:'} {u.name || 'لا يوجد'}
                           </p>
                           
-                          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 mt-1">
-                            <Mail className="w-3.5 h-3.5 shrink-0" />
-                            <span className="truncate">{u.email}</span>
+                          <div className="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400 mt-1 flex-wrap">
+                            <span className="flex items-center gap-1">
+                              <Mail className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">{u.email}</span>
+                            </span>
+
+                            {u.phone && (
+                              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-mono text-xs">
+                                <Phone className="w-3 h-3 shrink-0" />
+                                <span>{u.phone}</span>
+                              </span>
+                            )}
                           </div>
 
                           {(u.created_at || u.createdAt) && (
@@ -331,15 +342,22 @@ export default function Admin() {
                         </div>
                       </div>
 
-                      {/* Right: Modern Fast Controls */}
-                      <div className="flex items-center gap-4 self-end sm:self-center shrink-0">
+                      {/* Right: Controls */}
+                      <div className="flex items-center gap-3 self-end sm:self-center shrink-0">
+                        {/* زر مراسلة الواتساب مباشرة إذا كان للمستخدم رقم هاتف */}
+                        {u.phone && (
+                          <a
+                            href={`https://wa.me/${u.phone.replace(/[^0-9]/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-2 rounded-xl bg-emerald-50 text-emerald-600 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400 transition"
+                            title="مراسلة عبر الواتساب"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </a>
+                        )}
+
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-400 font-medium hidden md:inline">
-                            {isUserActive 
-                              ? (language === 'ar' ? 'تعطيل السريع' : 'Désactiver') 
-                              : (language === 'ar' ? 'تفعيل السريع' : 'Activer')}
-                          </span>
-                          
                           <button
                             type="button"
                             disabled={localLoading || isProtectedAdmin}
@@ -388,10 +406,7 @@ export default function Admin() {
 
       {/* Footer */}
       <div className="text-center text-sm text-gray-400 dark:text-gray-500 mt-6">
-        <p>Admin Panel v1.2.0 (Isolated)</p>
-        <p className="mt-1">
-          {language === 'ar' ? 'إدارة نظام دفاتر الديون' : language === 'fr' ? 'Gestion des dettes' : 'Debts Manager Admin'}
-        </p>
+        <p>Nawh AI Admin Panel v1.2.0</p>
       </div>
     </div>
   );
