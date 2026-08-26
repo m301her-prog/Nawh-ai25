@@ -1,17 +1,20 @@
-name: Check Due Debts Daily
+name: Daily Schema Cleanup (48 hours)
 
 on:
   schedule:
-    # يتم تشغيل هذا الأكشن أوتوماتيكياً كل يوم الساعة 8 صباحاً بتوقيت UTC
-    - cron: '0 8 * * *'
-  workflow_dispatch: # يتيح لك زر لتشغيله يدوياً متى شئت من لوحة تحكم جيثب
+    # يعمل تلقائياً يومياً الساعة 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
-  trigger-api:
+  run-cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Send POST Request to Vercel API
+      - name: Call Clean API Endpoint
         run: |
-          curl -X POST "https://nawh-ai25.vercel.app/api/cron/check-due-debts" \
-          -H "Authorization: Bearer ${{ secrets.CRON_SECRET_KEY }}" \
-          -H "Content-Type: application/json"
+          curl -X POST https://nawh-ai25.vercel.app/api/cron/cleanup-expired-schemas \
+            -H "Content-Type: application/json" \
+            -H "x-action-secret: MY_SECURE_CRON_SECRET_123" \
+            -d '{
+              "maxAgeHours": 48
+            }'
