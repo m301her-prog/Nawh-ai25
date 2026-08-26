@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+     import { useState, useMemo } from 'react';
 import { useApp } from '../context/AppContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -49,7 +49,7 @@ export default function DebtList() {
 
       try {
         // 1. طلب مسح جميع الديون من السحابة / قاعدة البيانات
-        const response = await fetch('https://my-dept-2.vercel.app/api/Delete', {
+        const response = await fetch('https://nawh-ai25.vercel.app/api/Delete', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -218,7 +218,7 @@ export default function DebtList() {
         const userId = currentUser?.id || currentUser?._id || 'guest';
 
         // 2. طلب الحذف السحابي وقاعدة البيانات
-        const response = await fetch('https://my-dept-2.vercel.app/api/Delete', {
+        const response = await fetch('https://nawh-ai25.vercel.app/api/Delete', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -616,4 +616,4 @@ export default function DebtList() {
       </button>
     </div>
   );
-}
+}  
