@@ -12,12 +12,6 @@ import {
   Users,
   Settings,
   Bell,
-  Calendar,
-  ChevronLeft,
-  DollarSign,
-  Clock,
-  CheckCircle,
-  AlertTriangle,
   Activity,
   Wallet,
   FileText,
@@ -25,24 +19,27 @@ import {
   CreditCard,
   X,
   Share2,
-  PlusCircle
+  PlusCircle,
+  Layers,
+  CheckCircle,
+  DollarSign,
+  Loader2
 } from 'lucide-react';
 
 export default function Home() {
   const {
     t,
     user,
-    isAdmin,
-    debts,
-    statistics,
+    debts = [],
+    statistics = { totalDebts: 0, paidRatio: 0, totalOwedToMe: 0, totalIOwe: 0, paidDebtsCount: 0, pendingDebtsCount: 0 },
     language,
     setLanguage,
     darkMode,
     setDarkMode,
     sendNotification,
     notificationsEnabled,
-    openWhatsApp,
-    updateDebt 
+    updateDebt,
+    loading // حالة التحميل إذا كانت متاحة في Context
   } = useApp();
   
   const navigate = useNavigate();
@@ -52,12 +49,15 @@ export default function Home() {
   const [installmentAmount, setInstallmentAmount] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // State للتحكم في نافذة إضافة دين جديد (زيادة على المبلغ الحالي)
+  // State للتحكم في نافذة إضافة دين جديد
   const [selectedAddDebt, setSelectedAddDebt] = useState(null);
   const [additionalDebtAmount, setAdditionalDebtAmount] = useState('');
   const [isAddDebtModalOpen, setIsAddDebtModalOpen] = useState(false);
 
-  // --- دالة مزامنة البيانات غير المحفوظة عند عودة النت ---
+  // حساب إجمالي عدد الأقساط المتبقية عبر جميع الديون بأمان
+  const totalInstallmentsCount = (debts || []).reduce((acc, curr) => acc + (Number(curr.installmentsCount) || 0), 0);
+
+  // دالة مزامنة البيانات غير المحفوظة عند عودة النت
   const syncOfflineData = async () => {
     const offlineQueue = JSON.parse(localStorage.getItem('pending_offline_debts') || '[]');
     if (offlineQueue.length === 0) return;
@@ -70,7 +70,7 @@ export default function Home() {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-tenant-schema': item.tenantSchema || reqHeaderSchema || ''
+            'x-tenant-schema': item.tenantSchema || ''
           },
           body: JSON.stringify(item)
         });
@@ -87,7 +87,6 @@ export default function Home() {
     localStorage.setItem('pending_offline_debts', JSON.stringify(remainingQueue));
   };
 
-  // تفعيل المزامنة عند فتح الصفحة وعند عودة الاتصال بالنت
   useEffect(() => {
     if (navigator.onLine) {
       syncOfflineData();
@@ -104,7 +103,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!notificationsEnabled) return;
+    if (!notificationsEnabled || !debts || debts.length === 0) return;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -127,16 +126,11 @@ export default function Home() {
     });
   }, [debts, t, notificationsEnabled, sendNotification]);
 
-  const recentDebts = debts
+  const recentDebts = [...(debts || [])]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 5);
 
-  const upcomingDebts = debts
-    .filter(d => d.status !== 'paid')
-    .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
-    .slice(0, 5);
-
-  const formatCurrency = (amount, currency) => {
+  const formatCurrency = (amount = 0, currency) => {
     const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Intl.NumberFormat(locale, {
       style: 'currency',
@@ -147,20 +141,13 @@ export default function Home() {
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return '-';
     const locale = language === 'ar' ? 'ar-DZ' : language === 'fr' ? 'fr-FR' : 'en-US';
     return new Date(dateString).toLocaleDateString(locale, {
       month: 'short',
       day: 'numeric',
       year: 'numeric'
     });
-  };
-
-  const getDebtTypeIcon = (type) => {
-    return type === 'owed_to_me' ? (
-      <TrendingUp className="w-5 h-5 text-emerald-500" />
-    ) : (
-      <TrendingDown className="w-5 h-5 text-red-500" />
-    );
   };
 
   const getStatusColor = (debt) => {
@@ -170,15 +157,12 @@ export default function Home() {
     return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
   };
 
-  // --- دالة موحدة لتصدير وحفظ PDF متوافقة مع أندرويد والمتصفح ---
   const saveAndExportPDF = async (element, fileName, opt) => {
     if (!Capacitor.isNativePlatform()) {
-      // للمتصفح العادي
       html2pdf().set(opt).from(element).save();
       return;
     }
 
-    // لتطبيق أندرويد عبر Capacitor
     try {
       const pdfBase64 = await html2pdf()
         .set(opt)
@@ -200,11 +184,10 @@ export default function Home() {
         dialogTitle: 'فتح أو مشاركة ملف PDF'
       });
     } catch (error) {
-      console.error('حدث خطأ أثناء حفظ الملف على أندرويد:', error);
+      console.error('حدث خطأ أثناء حفظ الملف:', error);
     }
   };
 
-  // --- 1. تصدير الجدول بالكامل PDF ---
   const handleDownloadTablePDF = async () => {
     const element = document.getElementById('debts-table-container');
     const fileName = `جدول_الديون_${new Date().toISOString().slice(0, 10)}.pdf`;
@@ -219,34 +202,85 @@ export default function Home() {
     await saveAndExportPDF(element, fileName, opt);
   };
 
-  // --- 2. عرض واستخراج شيك الدين الأساسي PDF ---
   const handlePrintCheckPDF = async (debt) => {
+    const history = debt.history || [];
+    const installments = history.filter(h => h.type === 'installment' || h.type === 'payment');
+
+    const historyRows = history.length > 0 ? history.map((item, index) => `
+      <tr style="border-bottom: 1px solid #e5e7eb; font-size: 13px;">
+        <td style="padding: 8px; text-align: center;">${index + 1}</td>
+        <td style="padding: 8px; text-align: center;">${formatDate(item.date || new Date())}</td>
+        <td style="padding: 8px; text-align: center; color: ${item.type === 'add' ? '#dc2626' : '#16a34a'}; font-weight: bold;">
+          ${item.type === 'add' ? 'إضافة دين (+)' : 'سداد قسط (-)'}
+        </td>
+        <td style="padding: 8px; text-align: center; font-weight: bold;">
+          ${formatCurrency(item.amount, debt.currency)}
+        </td>
+        <td style="padding: 8px; text-align: center;">${item.note || '-'}</td>
+      </tr>
+    `).join('') : `
+      <tr>
+        <td colspan="5" style="padding: 12px; text-align: center; color: #6b7280; font-size: 13px;">لا توجد حركة أقساط سابقة سجلت لهذا الدين</td>
+      </tr>
+    `;
+
     const checkElement = document.createElement('div');
     checkElement.innerHTML = `
-      <div style="padding: 20px; font-family: sans-serif; direction: rtl; text-align: right;">
-        <div style="border: 4px double #059669; padding: 25px; border-radius: 15px; background: #f0fdf4; width: 600px; margin: auto;">
-          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #059669; padding-bottom: 10px; margin-bottom: 20px;">
-            <h2 style="color: #059669; margin: 0; font-size: 24px;">شيك إثبات دين</h2>
-            <span style="font-size: 14px; color: #666;">التاريخ: ${formatDate(new Date())}</span>
+      <div style="padding: 20px; font-family: sans-serif; direction: rtl; text-align: right; background: #fff;">
+        <div style="border: 3px solid #059669; padding: 25px; border-radius: 15px; background: #f0fdf4; max-width: 750px; margin: auto;">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #059669; padding-bottom: 12px; margin-bottom: 20px;">
+            <div>
+              <h2 style="color: #059669; margin: 0; font-size: 22px;">شيك إثبات وسجل دين</h2>
+              <span style="font-size: 12px; color: #666;">كشف حساب تفصيلي للشخص</span>
+            </div>
+            <span style="font-size: 13px; color: #333; background: #fff; padding: 4px 10px; border-radius: 6px; border: 1px solid #059669;">تاريخ التقرير: ${formatDate(new Date())}</span>
           </div>
-          <div style="margin-bottom: 15px; font-size: 18px;">
-            <span>المبلغ: </span>
-            <strong style="color: #059669; font-size: 22px; background: #fff; padding: 5px 15px; border-radius: 8px; border: 1px solid #ccc;">
-              ${formatCurrency(debt.amount, debt.currency)}
-            </strong>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; background: #fff; padding: 15px; border-radius: 10px; border: 1px solid #e5e7eb;">
+            <div style="font-size: 15px;">
+              <span style="color: #555;">الاسم / الطرف الثاني: </span><strong style="color: #111;">${debt.personName}</strong>
+            </div>
+            <div style="font-size: 15px;">
+              <span style="color: #555;">نوع الدين: </span><strong>${debt.type === 'owed_to_me' ? 'مستحق لي (له)' : 'مستحق علي (عليه)'}</strong>
+            </div>
+            <div style="font-size: 15px;">
+              <span style="color: #555;">تاريخ الاستحقاق: </span><strong>${formatDate(debt.dueDate)}</strong>
+            </div>
+            <div style="font-size: 15px;">
+              <span style="color: #555;">الحالة الحالية: </span><strong style="color: ${debt.status === 'paid' ? '#16a34a' : '#d97706'};">${debt.status === 'paid' ? 'تم السداد بالكامل' : 'متبقي'}</strong>
+            </div>
           </div>
-          <div style="margin-bottom: 12px; font-size: 16px;">
-            <span>الاسم / الطرف الثاني: </span><strong>${debt.personName}</strong>
+
+          <div style="margin-bottom: 20px; background: #e6f4ea; padding: 15px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #a7f3d0;">
+            <div>
+              <div style="font-size: 13px; color: #047857;">المبلغ الحالي / المتبقي للدفعة:</div>
+              <div style="font-size: 22px; font-weight: bold; color: #065f46;">${formatCurrency(debt.amount, debt.currency)}</div>
+            </div>
+            <div style="text-align: left;">
+              <div style="font-size: 13px; color: #047857;">عدد الأقساط المسددة:</div>
+              <div style="font-size: 18px; font-weight: bold; color: #065f46;">${installments.length}</div>
+            </div>
           </div>
-          <div style="margin-bottom: 12px; font-size: 16px;">
-            <span>نوع الدين: </span><strong>${debt.type === 'owed_to_me' ? 'مستحق لي (له)' : 'مستحق علي (عليه)'}</strong>
-          </div>
-          <div style="margin-bottom: 20px; font-size: 16px;">
-            <span>تاريخ الاستحقاق: </span><strong>${formatDate(debt.dueDate)}</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-top: 30px; border-top: 1px dashed #ccc; padding-top: 15px;">
-            <p style="margin: 0;">توقيع المحرر: ...................</p>
-            <p style="margin: 0;">توقيع المستلم: ...................</p>
+
+          <h3 style="font-size: 16px; color: #059669; margin-bottom: 10px;">جدول الأقساط والتحركات (السجل)</h3>
+          <table style="width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; margin-bottom: 20px; border: 1px solid #d1d5db;">
+            <thead>
+              <tr style="background: #059669; color: #fff; font-size: 13px;">
+                <th style="padding: 8px; text-align: center;">#</th>
+                <th style="padding: 8px; text-align: center;">التاريخ</th>
+                <th style="padding: 8px; text-align: center;">نوع العملية</th>
+                <th style="padding: 8px; text-align: center;">المبلغ</th>
+                <th style="padding: 8px; text-align: center;">ملاحظات</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${historyRows}
+            </tbody>
+          </table>
+
+          <div style="display: flex; justify-content: space-between; margin-top: 30px; border-top: 1px dashed #059669; padding-top: 15px;">
+            <p style="margin: 0; font-size: 14px;">توقيع المحرر: ...................</p>
+            <p style="margin: 0; font-size: 14px;">توقيع المستلم: ...................</p>
           </div>
         </div>
       </div>
@@ -258,57 +292,106 @@ export default function Home() {
       filename: fileName,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2 },
-      jsPDF: { unit: 'mm', format: 'a5', orientation: 'landscape' }
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
 
     await saveAndExportPDF(checkElement, fileName, opt);
   };
 
-  // --- 3. خصم القسط واستخراج شيك سداد ---
   const handlePayInstallment = async () => {
     if (!installmentAmount || isNaN(installmentAmount) || installmentAmount <= 0) return;
 
     const amountPaid = parseFloat(installmentAmount);
     const newAmount = Math.max(0, selectedDebt.amount - amountPaid);
+    
+    const currentInstallmentsCount = Number(selectedDebt.installmentsCount) || 0;
+    const newInstallmentsCount = Math.max(0, currentInstallmentsCount - 1);
+
     const updatedStatus = newAmount === 0 ? 'paid' : selectedDebt.status;
 
-    // تحديث الحالة في AppContext / Database
+    const newHistoryItem = {
+      id: Date.now(),
+      type: 'installment',
+      amount: amountPaid,
+      date: new Date().toISOString(),
+      note: 'تسديد قسط'
+    };
+
+    const updatedHistory = [...(selectedDebt.history || []), newHistoryItem];
+
     if (updateDebt) {
       updateDebt(selectedDebt.id, {
         ...selectedDebt,
         amount: newAmount,
-        status: updatedStatus
+        installmentsCount: newInstallmentsCount,
+        status: updatedStatus,
+        history: updatedHistory
       });
     }
 
-    // استخراج شيك سداد القسط PDF
+    const historyRows = updatedHistory.map((item, index) => `
+      <tr style="border-bottom: 1px solid #e5e7eb; font-size: 13px;">
+        <td style="padding: 8px; text-align: center;">${index + 1}</td>
+        <td style="padding: 8px; text-align: center;">${formatDate(item.date || new Date())}</td>
+        <td style="padding: 8px; text-align: center; color: ${item.type === 'add' ? '#dc2626' : '#16a34a'}; font-weight: bold;">
+          ${item.type === 'add' ? 'إضافة دين (+)' : 'سداد قسط (-)'}
+        </td>
+        <td style="padding: 8px; text-align: center; font-weight: bold;">
+          ${formatCurrency(item.amount, selectedDebt.currency)}
+        </td>
+        <td style="padding: 8px; text-align: center;">${item.note || '-'}</td>
+      </tr>
+    `).join('');
+
     const receiptElement = document.createElement('div');
     receiptElement.innerHTML = `
-      <div style="padding: 20px; font-family: sans-serif; direction: rtl; text-align: right;">
-        <div style="border: 3px solid #2563eb; padding: 25px; border-radius: 15px; background: #eff6ff; width: 600px; margin: auto;">
+      <div style="padding: 20px; font-family: sans-serif; direction: rtl; text-align: right; background: #fff;">
+        <div style="border: 3px solid #2563eb; padding: 25px; border-radius: 15px; background: #eff6ff; max-width: 750px; margin: auto;">
           <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 20px;">
-            <h2 style="color: #2563eb; margin: 0; font-size: 24px;">شيك سداد قسط</h2>
-            <span style="font-size: 14px; color: #666;">التاريخ: ${formatDate(new Date())}</span>
+            <div>
+              <h2 style="color: #2563eb; margin: 0; font-size: 22px;">شيك وتوصيل سداد قسط</h2>
+              <span style="font-size: 12px; color: #666;">وصل إثبات عملية دفع وتحديث الحساب</span>
+            </div>
+            <span style="font-size: 13px; color: #333; background: #fff; padding: 4px 10px; border-radius: 6px; border: 1px solid #2563eb;">التاريخ: ${formatDate(new Date())}</span>
           </div>
-          <div style="margin-bottom: 12px; font-size: 16px;">
-            <span>اسم العميل / الطرف: </span><strong>${selectedDebt.personName}</strong>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; background: #fff; padding: 12px; border-radius: 10px; border: 1px solid #dbeafe;">
+            <div style="font-size: 15px;">
+              <span>اسم العميل / الطرف: </span><strong style="color: #111;">${selectedDebt.personName}</strong>
+            </div>
+            <div style="font-size: 15px;">
+              <span>المبلغ المدفوع (القسط الحالي): </span><strong style="color: #16a34a;">${formatCurrency(amountPaid, selectedDebt.currency)}</strong>
+            </div>
+            <div style="font-size: 15px;">
+              <span>المبلغ المتبقي الكلي: </span><strong style="color: #dc2626;">${formatCurrency(newAmount, selectedDebt.currency)}</strong>
+            </div>
+            <div style="font-size: 15px;">
+              <span>الأقساط المتبقية: </span><strong>${newInstallmentsCount}</strong>
+            </div>
+            <div style="font-size: 15px;">
+              <span>حالة الدين: </span><strong>${updatedStatus === 'paid' ? 'مكتمل السداد' : 'قيد السداد'}</strong>
+            </div>
           </div>
-          <div style="margin-bottom: 15px; font-size: 18px;">
-            <span>المبلغ المدفوع (القسط): </span>
-            <strong style="color: #16a34a; font-size: 20px; background: #fff; padding: 5px 12px; border-radius: 6px; border: 1px solid #ccc;">
-              ${formatCurrency(amountPaid, selectedDebt.currency)}
-            </strong>
-          </div>
-          <div style="margin-bottom: 12px; font-size: 16px;">
-            <span>المبلغ المتبقي من الدين: </span>
-            <strong style="color: #dc2626;">${formatCurrency(newAmount, selectedDebt.currency)}</strong>
-          </div>
-          <div style="margin-bottom: 12px; font-size: 16px;">
-            <span>حالة الدين الحالية: </span><strong>${updatedStatus === 'paid' ? 'تم السداد بالكامل' : 'متبقي أقساط'}</strong>
-          </div>
-          <div style="display: flex; justify-content: space-between; margin-top: 30px; border-top: 1px dashed #ccc; padding-top: 15px;">
-            <p style="margin: 0;">توقيع المستلم: ...................</p>
-            <p style="margin: 0;">توقيع الدافع: ...................</p>
+
+          <h3 style="font-size: 15px; color: #2563eb; margin-bottom: 8px;">جدول وحركات الأقساط كاملة</h3>
+          <table style="width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; margin-bottom: 20px; border: 1px solid #cbd5e1;">
+            <thead>
+              <tr style="background: #2563eb; color: #fff; font-size: 13px;">
+                <th style="padding: 8px; text-align: center;">#</th>
+                <th style="padding: 8px; text-align: center;">التاريخ</th>
+                <th style="padding: 8px; text-align: center;">العملية</th>
+                <th style="padding: 8px; text-align: center;">المبلغ</th>
+                <th style="padding: 8px; text-align: center;">البيان</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${historyRows}
+            </tbody>
+          </table>
+
+          <div style="display: flex; justify-content: space-between; margin-top: 25px; border-top: 1px dashed #2563eb; padding-top: 15px;">
+            <p style="margin: 0; font-size: 14px;">توقيع المستلم: ...................</p>
+            <p style="margin: 0; font-size: 14px;">توقيع الدافع: ...................</p>
           </div>
         </div>
       </div>
@@ -320,29 +403,38 @@ export default function Home() {
       filename: fileName,
       image: { type: 'jpeg', quality: 0.98 },
       html2canvas: { scale: 2 },
-      jsPDF: { unit: 'mm', format: 'a5', orientation: 'landscape' }
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
     };
 
     await saveAndExportPDF(receiptElement, fileName, opt);
 
-    // إعادة ضبط الحالة وإغلاق Modal
     setIsModalOpen(false);
     setInstallmentAmount('');
     setSelectedDebt(null);
   };
 
-  // --- 4. دالة إضافة دين جديد وزيادته على المبلغ الموجود ---
   const handleAddNewDebt = () => {
     if (!additionalDebtAmount || isNaN(additionalDebtAmount) || additionalDebtAmount <= 0) return;
 
     const addedAmount = parseFloat(additionalDebtAmount);
     const newTotalAmount = Number(selectedAddDebt.amount) + addedAmount;
 
+    const newHistoryItem = {
+      id: Date.now(),
+      type: 'add',
+      amount: addedAmount,
+      date: new Date().toISOString(),
+      note: 'إضافة دين جديد'
+    };
+
+    const updatedHistory = [...(selectedAddDebt.history || []), newHistoryItem];
+
     if (updateDebt) {
       updateDebt(selectedAddDebt.id, {
         ...selectedAddDebt,
         amount: newTotalAmount,
-        status: selectedAddDebt.status === 'paid' ? 'pending' : selectedAddDebt.status
+        status: selectedAddDebt.status === 'paid' ? 'pending' : selectedAddDebt.status,
+        history: updatedHistory
       });
     }
 
@@ -350,6 +442,16 @@ export default function Home() {
     setAdditionalDebtAmount('');
     setSelectedAddDebt(null);
   };
+
+  // شاشة تحميل مؤقتة عند الفتح الأول حتى تجهز البيانات
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col justify-center items-center">
+        <Loader2 className="w-10 h-10 text-emerald-500 animate-spin mb-4" />
+        <p className="text-gray-600 dark:text-gray-300 font-medium">جاري تحميل البيانات...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-24">
@@ -359,7 +461,7 @@ export default function Home() {
           <div>
             <p className="text-emerald-100 text-sm">{t('welcome')}</p>
             <h1 className="text-2xl font-bold">
-              {user?.name || user?.email?.split('@')[0]}
+              {user?.name || user?.email?.split('@')[0] || 'مرحباً بك'}
             </h1>
             <p className="text-emerald-100 text-sm mt-1">
               {language === 'ar' ? 'كيف حالك اليوم؟' : ''}
@@ -400,11 +502,11 @@ export default function Home() {
         <div className="flex items-center justify-between text-sm">
           <div className="flex items-center gap-2">
             <Wallet className="w-4 h-4" />
-            <span>{statistics.totalDebts} {t('debts')}</span>
+            <span>{statistics?.totalDebts || 0} {t('debts')}</span>
           </div>
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4" />
-            <span>{statistics.paidRatio}% {t('paid')}</span>
+            <span>{statistics?.paidRatio || 0}% {t('paid')}</span>
           </div>
         </div>
       </header>
@@ -420,7 +522,7 @@ export default function Home() {
               <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">{t('owedToMe')}</span>
             </div>
             <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-              {formatCurrency(statistics.totalOwedToMe, 'DZD')}
+              {formatCurrency(statistics?.totalOwedToMe || 0, 'DZD')}
             </p>
           </div>
 
@@ -432,8 +534,20 @@ export default function Home() {
               <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">{t('iOwe')}</span>
             </div>
             <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-              {formatCurrency(statistics.totalIOwe, 'DZD')}
+              {formatCurrency(statistics?.totalIOwe || 0, 'DZD')}
             </p>
+          </div>
+
+          <div className="col-span-2 bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-xl border-l-4 border-blue-500 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                <Layers className="w-5 h-5 text-blue-500" />
+              </div>
+              <div>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-medium block">إجمالي عدد الأقساط المتبقية</span>
+                <span className="text-2xl font-bold text-blue-600 dark:text-blue-400">{totalInstallmentsCount} قسط</span>
+              </div>
+            </div>
           </div>
 
           <div className="col-span-2 bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-xl">
@@ -442,28 +556,28 @@ export default function Home() {
                 <CheckCircle className="w-5 h-5 text-emerald-500" />
                 <span className="text-sm text-gray-600 dark:text-gray-400 font-medium">{t('statistics')}</span>
               </div>
-              <span className="text-2xl font-bold text-gray-900 dark:text-white">{statistics.paidRatio}%</span>
+              <span className="text-2xl font-bold text-gray-900 dark:text-white">{statistics?.paidRatio || 0}%</span>
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
               <div
                 className="bg-gradient-to-r from-emerald-400 to-teal-500 h-3 rounded-full transition-all duration-500"
-                style={{ width: `${statistics.paidRatio}%` }}
+                style={{ width: `${statistics?.paidRatio || 0}%` }}
               />
             </div>
             <div className="flex justify-between mt-3 text-sm">
               <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                {t('paidDebts')}: {statistics.paidDebtsCount}
+                {t('paidDebts')}: {statistics?.paidDebtsCount || 0}
               </span>
               <span className="text-yellow-600 dark:text-yellow-400 font-medium">
-                {t('pendingDebts')}: {statistics.pendingDebtsCount}
+                {t('pendingDebts')}: {statistics?.pendingDebtsCount || 0}
               </span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Recent Activity Table with PDF Exports & Actions */}
-      {recentDebts.length > 0 && (
+      {/* Recent Activity Table */}
+      {recentDebts.length > 0 ? (
         <div className="px-4 mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="flex items-center gap-2 text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -471,7 +585,6 @@ export default function Home() {
               {t('recentActivity')}
             </h2>
             
-            {/* زرار تحميل الجدول بالكامل PDF مع إشارة المشاركة */}
             <button
               onClick={handleDownloadTablePDF}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow transition font-medium"
@@ -490,6 +603,7 @@ export default function Home() {
                   <tr>
                     <th className="p-3">الاسم</th>
                     <th className="p-3">المبلغ</th>
+                    <th className="p-3">الأقساط</th>
                     <th className="p-3">الحالة</th>
                     <th className="p-3">إجراءات (مشاركة PDF / أقساط / إضافة)</th>
                   </tr>
@@ -501,13 +615,15 @@ export default function Home() {
                       <td className={`p-3 font-bold ${debt.type === 'owed_to_me' ? 'text-emerald-500' : 'text-red-500'}`}>
                         {formatCurrency(debt.amount, debt.currency)}
                       </td>
+                      <td className="p-3 font-medium text-blue-600 dark:text-blue-400">
+                        {debt.installmentsCount || 0}
+                      </td>
                       <td className="p-3">
                         <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(debt)}`}>
                           {debt.status === 'paid' ? t('paid') : t('pending')}
                         </span>
                       </td>
                       <td className="p-3 flex items-center gap-2">
-                        {/* 1. زرار عرض ومشاركة الشيك PDF */}
                         <button
                           onClick={() => handlePrintCheckPDF(debt)}
                           title="عرض ومشاركة الشيك PDF"
@@ -518,7 +634,6 @@ export default function Home() {
                           <span className="text-[10px] font-bold border border-blue-400 px-0.5 rounded">PDF</span>
                         </button>
 
-                        {/* 2. زرار إضافة قسط وخصمه */}
                         <button
                           onClick={() => {
                             setSelectedDebt(debt);
@@ -531,7 +646,6 @@ export default function Home() {
                           <span>قسط</span>
                         </button>
 
-                        {/* 3. زرار إضافة دين جديد (زيادة على الدين الحالي) */}
                         <button
                           onClick={() => {
                             setSelectedAddDebt(debt);
@@ -550,6 +664,10 @@ export default function Home() {
               </table>
             </div>
           </div>
+        </div>
+      ) : (
+        <div className="px-4 mb-6 text-center py-8 bg-white dark:bg-gray-800 rounded-2xl shadow-md">
+          <p className="text-gray-500 dark:text-gray-400 text-sm">لا توجد ديون أو مسجلات سابقة حتى الآن.</p>
         </div>
       )}
 
@@ -571,6 +689,8 @@ export default function Home() {
               العميل: <span className="font-semibold text-gray-800 dark:text-gray-200">{selectedDebt.personName}</span>
               <br />
               إجمالي الدين الحالي: <span className="font-bold text-emerald-600">{formatCurrency(selectedDebt.amount, selectedDebt.currency)}</span>
+              <br />
+              الأقساط المتبقية: <span className="font-bold text-blue-600">{selectedDebt.installmentsCount || 0}</span>
             </p>
 
             <div className="mb-4">
@@ -600,7 +720,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Modal إضافة دين جديد (زيادة على الدين الحالي) */}
+      {/* Modal إضافة دين جديد */}
       {isAddDebtModalOpen && selectedAddDebt && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white dark:bg-gray-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
@@ -647,7 +767,7 @@ export default function Home() {
       )}
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 py-2 shadow-lg">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 py-2 shadow-lg z-40">
         <div className="flex items-center justify-around max-w-md mx-auto">
           <button onClick={() => navigate('/')} className="flex flex-col items-center py-2 text-emerald-500">
             <DollarSign className="w-6 h-6" />
