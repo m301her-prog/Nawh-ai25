@@ -15,7 +15,11 @@ import {
   DollarSign,
   ArrowLeft,
   X,
-  Trash2
+  Trash,
+  Trash2,
+  Calendar,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 export default function DebtList() {
@@ -28,10 +32,69 @@ export default function DebtList() {
   const [sortBy, setSortBy] = useState('newest');
   const [showFilters, setShowFilters] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [isClearingAll, setIsClearingAll] = useState(false);
+  const [expandedScheduleId, setExpandedScheduleId] = useState(null);
 
-  // دالة مساعدة لاستخراج رقم الهاتف بغض النظر عن مصدره (محلي أو سحابي)
+  // دالة مسح كل الديون المربوطة بالسحابة، التخزين المحلي، وقاعدة بيانات التطبيق بضغطة واحدة
+  const handleClearSpecificData = async (keysToDelete = ['debts', 'pending_offline_debts']) => {
+    if (isClearingAll) return;
+
+    const confirmMessage = t('confirmDelete') || 
+      (language === 'ar' ? 'هل أنت تأكد من رغبتك في حذف جميع الديون نهائياً من التطبيق وقاعدة البيانات؟' : 'Are you sure you want to delete all debts history from the app and database?');
+
+    if (window.confirm(confirmMessage)) {
+      setIsClearingAll(true);
+      const companyName = currentUser?.companyName || currentUser?.company_name || '';
+      const userId = currentUser?.id || currentUser?._id || 'guest';
+
+      try {
+        // 1. طلب مسح جميع الديون من السحابة / قاعدة البيانات
+        const response = await fetch('https://my-dept-2.vercel.app/api/Delete', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-user-id': String(userId),
+            'x-tenant-schema': companyName ? `schema_${companyName.toLowerCase().replace(/[^a-zA-Z0-9_]/g, '')}` : ''
+          },
+          body: JSON.stringify({
+            action: 'DELETE_ALL',
+            companyName: companyName,
+            userId: userId
+          })
+        });
+
+        const resData = await response.json();
+
+        if (!response.ok || (resData.success !== undefined && !resData.success)) {
+          throw new Error(resData.error || 'Failed to clear all debts on server');
+        }
+
+        // 2. مسح البيانات من LocalStorage والـ State
+        keysToDelete.forEach(key => localStorage.removeItem(key));
+        if (setDebts) setDebts([]);
+
+        // 3. التزامن ومسح البيانات محلياً من تطبيق الأندرويد (Room / SQLite)
+        if (window.AndroidBridge) {
+          if (typeof window.AndroidBridge.clearAllDebtsLocally === 'function') {
+            window.AndroidBridge.clearAllDebtsLocally();
+          } else if (typeof window.AndroidBridge.deleteAllDebtsFromLocalDb === 'function') {
+            window.AndroidBridge.deleteAllDebtsFromLocalDb();
+          }
+        }
+
+        window.location.reload();
+      } catch (error) {
+        console.error('Error clearing specific data:', error);
+        alert(language === 'ar' ? 'حدث خطأ أثناء مسح البيانات، يرجى التأكد من اتصال الاتصال بالإنترنت' : 'Failed to clear all debts history');
+      } finally {
+        setIsClearingAll(false);
+      }
+    }
+  };
+
+  // دالة جلب رقم الهاتف مع التأكيد على حقل person_phone المتواجد في قاعدة البيانات
   const getPhoneNumber = (debt) => {
-    return debt.phone || debt.personPhone || debt.person_phone || debt.person_Phone || '';
+    return debt.person_phone || debt.personPhone || debt.phone || debt.person_Phone || debt.whatsapp || debt.whatsappPhone || '';
   };
 
   // Filter and sort debts
@@ -41,10 +104,12 @@ export default function DebtList() {
       if (filterStatus !== 'all' && debt.status !== filterStatus) return false;
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
+        const phone = getPhoneNumber(debt).toLowerCase();
         return (
           debt.personName?.toLowerCase().includes(query) ||
           debt.person_name?.toLowerCase().includes(query) ||
-          debt.notes?.toLowerCase().includes(query)
+          debt.notes?.toLowerCase().includes(query) ||
+          phone.includes(query)
         );
       }
       return true;
@@ -112,15 +177,15 @@ export default function DebtList() {
     openWhatsApp(phoneNumber, message);
   };
 
-  // دالة الحذف الشاملة المتوافقة مع السحابة والذاكرة المحلية للأندرويد
+  // دالة الحذف الشاملة المتوافقة والمتزامنة مع قاعدة البيانات والسحابة والذاكرة المحلية
   const handleDeleteDebt = async (e, debt) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const rawId = debt.id || debt._id || debt.debt_id || debt.debtId;
-    if (!rawId || deletingId) return;
+    const rawId = debt.id ?? debt._id ?? debt.debt_id ?? debt.debtId;
+    if (rawId === undefined || rawId === null || deletingId) return;
 
-    const debtIdToDelete = String(rawId);
+    const debtIdToDelete = String(rawId).trim();
     const nameDisplay = debt.personName || debt.person_name || 'هذا الدين';
     const confirmMessage = language === 'ar' 
       ? `هل أنت تأكد من رغبتك في حذف دين "${nameDisplay}"؟` 
@@ -128,25 +193,32 @@ export default function DebtList() {
       
     if (window.confirm(confirmMessage)) {
       setDeletingId(debtIdToDelete);
-      const previousDebts = debts;
+      const previousDebts = [...(debts || [])];
 
-      // 1. التحديث اللحظي للواجهة
-      if (setDebts) {
-        setDebts(prevDebts => 
-          prevDebts.filter(item => {
-            const itemId = String(item.id || item._id || item.debt_id || item.debtId || '');
-            return itemId !== debtIdToDelete;
-          })
-        );
-      }
+      // دالة تحديث التخزين المحلي والـ State لضمان عدم استعادة العناصر
+      const updateLocalState = (updatedList) => {
+        if (setDebts) setDebts(updatedList);
+        try {
+          localStorage.setItem('debts', JSON.stringify(updatedList));
+        } catch (err) {
+          console.error('Error updating localStorage:', err);
+        }
+      };
+
+      // 1. التحديث اللحظي للواجهة والذاكرة المحلية
+      const updatedDebts = previousDebts.filter(item => {
+        const itemId = String(item.id ?? item._id ?? item.debt_id ?? item.debtId ?? '').trim();
+        return itemId !== debtIdToDelete;
+      });
+      updateLocalState(updatedDebts);
 
       try {
         const personName = debt.personName || debt.person_name || '';
         const companyName = debt.companyName || debt.company_name || currentUser?.companyName || currentUser?.company_name || '';
         const userId = currentUser?.id || currentUser?._id || 'guest';
 
-        // 2. طلب الحذف السحابي
-        const response = await fetch('https://nawh-ai25.vercel.app/api/Delete', {
+        // 2. طلب الحذف السحابي وقاعدة البيانات
+        const response = await fetch('https://my-dept-2.vercel.app/api/Delete', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -164,29 +236,44 @@ export default function DebtList() {
 
         const resData = await response.json();
 
-        if (!response.ok || !resData.success) {
+        if (!response.ok || (resData.success !== undefined && !resData.success)) {
           throw new Error(resData.error || 'Failed to delete on server');
         }
 
-        // 3. التفاعل مع بيئة Android Native (إن وُجدت) للحذف الداخلي وإطلاق الإشعار
-        if (window.AndroidBridge && window.AndroidBridge.deleteDebtLocally) {
-          window.AndroidBridge.deleteDebtLocally(debtIdToDelete, personName);
+        // 3. التزامن مع قاعدة بيانات التطبيق على الأندرويد (Room / SQLite)
+        if (window.AndroidBridge) {
+          if (typeof window.AndroidBridge.deleteDebtLocally === 'function') {
+            window.AndroidBridge.deleteDebtLocally(debtIdToDelete, personName);
+          } else if (typeof window.AndroidBridge.deleteDebtFromLocalDb === 'function') {
+            window.AndroidBridge.deleteDebtFromLocalDb(debtIdToDelete, personName);
+          }
         }
 
       } catch (error) {
         console.error('Error deleting debt on server:', error);
-        // التراجع في حالة الخطأ
-        if (setDebts) {
-          setDebts(previousDebts);
-        }
-        alert(language === 'ar' ? 'حدث خطأ أثناء الحذف من السحابة' : 'Failed to delete from cloud');
+        // إعادة الحالة السابقة عند الفشل
+        updateLocalState(previousDebts);
+        alert(language === 'ar' ? 'حدث خطأ أثناء الحذف، يرجى الاتصال بالإنترنت' : 'Failed to delete debt');
       } finally {
         setDeletingId(null);
       }
     }
   };
 
-  // Calculate totals
+  // دالة مساعدة محصنة لاستخراج بيانات الأقساط بغض النظر عن طريقة تحويل البيانات
+  const parseScheduleData = (scheduleData) => {
+    if (!scheduleData) return [];
+    if (Array.isArray(scheduleData)) return scheduleData;
+    if (typeof scheduleData === 'object') return Object.values(scheduleData);
+    try {
+      const parsed = JSON.parse(scheduleData);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  };
+
+  // حساب الإجماليات
   const totalOwedToMe = (debts || [])
     .filter(d => d.type === 'owed_to_me' && d.status !== 'paid')
     .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
@@ -224,7 +311,7 @@ export default function DebtList() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('searchPlaceholder') || 'بحث...'}
+            placeholder={t('searchPlaceholder') || 'بحث عن اسم أو رقم هاتف...'}
             className="w-full pl-12 pr-4 py-3 rounded-xl bg-white/20 text-white placeholder-emerald-200 border border-white/30 focus:bg-white/30 focus:border-white transition backdrop-blur-sm"
           />
           {searchQuery && (
@@ -280,7 +367,7 @@ export default function DebtList() {
 
       {/* Summary Cards */}
       <div className="px-4 -mt-2 mb-4">
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 mb-3">
           <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-lg border-l-4 border-emerald-500">
             <p className="text-xs text-gray-500 dark:text-gray-400 font-medium">{t('owedToMe') || 'له علي (لك)'}</p>
             <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-1">
@@ -294,6 +381,17 @@ export default function DebtList() {
             </p>
           </div>
         </div>
+
+        {/* زر مسح سجل الديون كاملاً من السحابة وقاعدة البيانات والتطبيق */}
+        <button
+          type="button"
+          disabled={isClearingAll}
+          onClick={() => handleClearSpecificData(['debts', 'pending_offline_debts'])}
+          className="w-full py-4 rounded-2xl border-2 border-red-500 text-red-500 font-bold hover:bg-red-50 dark:hover:bg-red-900/20 transition flex items-center justify-center gap-3 disabled:opacity-50"
+        >
+          <Trash className={`w-5 h-5 ${isClearingAll ? 'animate-spin' : ''}`} />
+          {language === 'ar' ? 'مسح سجل الديون بالكامل' : 'Clear All Debts History'}
+        </button>
       </div>
 
       {/* Results Count */}
@@ -309,12 +407,18 @@ export default function DebtList() {
       {filteredDebts.length > 0 ? (
         <div className="px-4 space-y-3">
           {filteredDebts.map((debt, index) => {
-            const rawDebtId = debt.id || debt._id || debt.debt_id || debt.debtId || index;
+            const rawDebtId = debt.id ?? debt._id ?? debt.debt_id ?? debt.debtId ?? index;
             const debtId = String(rawDebtId);
             const isDeleting = deletingId === debtId;
             const phoneNumber = getPhoneNumber(debt);
             const personName = debt.personName || debt.person_name || '';
             const dueDate = debt.dueDate || debt.due_date;
+
+            const scheduleItems = parseScheduleData(debt.scheduleData || debt.schedule_data);
+            const rawIsScheduled = debt.isScheduled ?? debt.is_scheduled;
+            const isScheduled = rawIsScheduled === true || rawIsScheduled === 'true' || rawIsScheduled === 1 || rawIsScheduled === '1' || scheduleItems.length > 0;
+            const installmentsCount = debt.installmentsCount || debt.installments_count || scheduleItems.length;
+            const isExpanded = expandedScheduleId === debtId;
 
             return (
               <div
@@ -339,15 +443,29 @@ export default function DebtList() {
 
                     {/* Content */}
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex items-start justify-between gap-2 mb-1">
                         <div>
                           <h3 className="font-bold text-gray-900 dark:text-white text-lg truncate">
                             {personName}
                           </h3>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                          
+                          {/* عرض رقم الهاتف إن وجد */}
+                          {phoneNumber ? (
+                            <p className="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1 mt-0.5" dir="ltr">
+                              <Phone className="w-3 h-3 text-emerald-500 inline shrink-0" />
+                              <span>{phoneNumber}</span>
+                            </p>
+                          ) : (
+                            <p className="text-xs text-gray-400 dark:text-gray-500 italic mt-0.5">
+                              بلا رقم هاتف
+                            </p>
+                          )}
+
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                             {formatDate(dueDate)}
                           </p>
                         </div>
+                        
                         <div className="text-right">
                           <p className={`text-xl font-bold ${
                             debt.type === 'owed_to_me' ? 'text-emerald-500' : 'text-red-500'
@@ -357,13 +475,21 @@ export default function DebtList() {
                         </div>
                       </div>
 
-                      {/* Status & Call/Delete Actions */}
-                      <div className="flex items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-700/50 pb-3 mb-3">
+                      {/* Status & Actions */}
+                      <div className="flex items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-700/50 pb-3 my-3">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className={`text-xs px-3 py-1 rounded-full font-medium flex items-center gap-1 ${getStatusColor(debt)}`}>
                             {getStatusIcon(debt)}
                             {debt.status === 'paid' ? (t('paid') || 'مدفوع') : (t('pending') || 'معلق')}
                           </span>
+                          
+                          {isScheduled && (
+                            <span className="text-xs px-2.5 py-1 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              {installmentsCount} أقساط
+                            </span>
+                          )}
+
                           {debt.currency && debt.currency !== 'DZD' && (
                             <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">
                               {debt.currency}
@@ -383,7 +509,7 @@ export default function DebtList() {
                             </a>
                           )}
                           
-                          {/* زر الحذف */}
+                          {/* زر الحذف الفردي لـ الدين الخاص بالعميل */}
                           <button
                             type="button"
                             disabled={isDeleting}
@@ -396,7 +522,42 @@ export default function DebtList() {
                         </div>
                       </div>
 
-                      {/* زر الواتساب (يظهر دائماً طالما يتوفر رقم الهاتف) */}
+                      {/* عرض الأقساط والجدولة إن وجدت */}
+                      {isScheduled && scheduleItems.length > 0 && (
+                        <div className="mt-2 bg-blue-50/50 dark:bg-blue-950/20 rounded-xl p-3 border border-blue-100 dark:border-blue-900/30">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedScheduleId(isExpanded ? null : debtId);
+                            }}
+                            className="w-full flex items-center justify-between text-xs font-bold text-blue-700 dark:text-blue-400"
+                          >
+                            <span className="flex items-center gap-1">
+                              جدول الأقساط ({scheduleItems.length})
+                            </span>
+                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                          </button>
+
+                          {isExpanded && (
+                            <div className="mt-2 space-y-1.5 pt-2 border-t border-blue-100 dark:border-blue-900/30">
+                              {scheduleItems.map((item, idx) => (
+                                <div key={idx} className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300 py-1 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                                  <span>القسط {item.installmentNumber || item.number || idx + 1}: {formatDate(item.dueDate || item.date)}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-semibold">{formatCurrency(item.amount, debt.currency)}</span>
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${item.status === 'paid' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300' : 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}>
+                                      {item.status === 'paid' ? 'مدفوع' : 'معلق'}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* زر الواتساب (يظهر عند توفر رقم الهاتف) */}
                       {phoneNumber && (
                         <button
                           type="button"
