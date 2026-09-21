@@ -1,0 +1,26 @@
+{
+  "background_color": "#ffffff",
+  "description": "تطبيق إدارة الديون - نظم ديونك بسهولة",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "nawh-ai25.vercel",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "nawh-ai25.vercel",
+  "start_url": "/",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "https://nawh-ai25.vercel.app/vite.svg",
+      "type": "image/svg+xml",
+      "isSquare": false,
+      "isPng": false,
+      "isWebp": false,
+      "isJpg": false,
+      "width": 0,
+      "is512x512": false,
+      "is256x256": false,
+      "is192x192": false
+    }
+  ]
+}
