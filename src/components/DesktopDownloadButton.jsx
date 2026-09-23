@@ -24,7 +24,7 @@ const labels = {
   },
 };
 
-export default function DesktopDownloadButton({ language = 'ar', compact = false }) {
+export default function DesktopDownloadButton({ language = 'ar', compact = false, floating = false }) {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [installed, setInstalled] = useState(false);
   const text = labels[language] || labels.ar;
@@ -65,9 +65,9 @@ export default function DesktopDownloadButton({ language = 'ar', compact = false
   const label = installed ? text.installed : installPrompt ? text.install : text.download;
 
   return (
-    <div className="desktop-download-wrap">
+    <div className={`desktop-download-wrap ${floating ? 'floating-wrap' : ''}`}>
       <button
-        className={`desktop-download-button ${compact ? 'compact' : ''}`}
+        className={`desktop-download-button ${compact ? 'compact' : ''} ${floating ? 'floating' : ''}`}
         type="button"
         onClick={handleInstall}
         aria-label={label}

@@ -77,6 +77,53 @@
     display: none;
   }
 
+  .desktop-download-wrap.floating-wrap {
+    position: fixed;
+    right: 1rem;
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    z-index: 50;
+    align-items: stretch;
+  }
+
+  .desktop-download-button.floating {
+    min-height: 3.25rem;
+    padding: 0.8rem 1.1rem;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    border-radius: 9999px;
+    background: linear-gradient(135deg, #047857, #0891b2);
+    box-shadow: 0 10px 25px rgba(4, 120, 87, 0.35), 0 0 0 4px rgba(16, 185, 129, 0.18);
+    font-size: 0.85rem;
+    white-space: nowrap;
+    animation: desktopInstallPulse 2.8s ease-in-out infinite;
+  }
+
+  .desktop-download-button.floating span {
+    display: inline;
+  }
+
+  .desktop-download-button.floating:hover {
+    background: linear-gradient(135deg, #065f46, #0e7490);
+    box-shadow: 0 14px 30px rgba(4, 120, 87, 0.45), 0 0 0 5px rgba(16, 185, 129, 0.2);
+    transform: translateY(-2px) scale(1.02);
+  }
+
+  @keyframes desktopInstallPulse {
+    0%, 100% { box-shadow: 0 10px 25px rgba(4, 120, 87, 0.35), 0 0 0 4px rgba(16, 185, 129, 0.18); }
+    50% { box-shadow: 0 12px 28px rgba(4, 120, 87, 0.45), 0 0 0 8px rgba(16, 185, 129, 0.08); }
+  }
+
+  @media (max-width: 480px) {
+    .desktop-download-wrap.floating-wrap {
+      right: 0.75rem;
+      left: 0.75rem;
+    }
+
+    .desktop-download-button.floating {
+      width: 100%;
+      font-size: 0.8rem;
+    }
+  }
+
   .desktop-download-link {
     display: inline-flex;
     align-items: center;

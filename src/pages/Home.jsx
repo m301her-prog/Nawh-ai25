@@ -511,7 +511,7 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
-            <DesktopDownloadButton language={language} compact />
+            <DesktopDownloadButton language={language} floating />
             <div className="flex bg-white/20 rounded-xl p-1 backdrop-blur-sm">
               {['ar', 'fr', 'en'].map(lang => (
                 <button
