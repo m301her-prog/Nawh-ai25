@@ -6,6 +6,14 @@ import { AppProvider, useApp } from './context/AppContext.jsx';
 import './index.css';
 import { LocalNotifications } from '@capacitor/local-notifications';
 
+if ('serviceWorker' in navigator && window.location.protocol === 'https:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((error) => {
+      console.error('تعذر تسجيل Service Worker:', error);
+    });
+  });
+}
+
 // مكون لإدارة أذونات وجدولة الإشعارات المحلية
 const NotificationInitializer = () => {
   const { debts } = useApp();

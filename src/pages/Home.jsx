@@ -25,6 +25,7 @@ import {
   DollarSign,
   Loader2
 } from 'lucide-react';
+import DesktopDownloadButton from '../components/DesktopDownloadButton.jsx';
 
 export default function Home() {
   const {
@@ -510,6 +511,7 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
+            <DesktopDownloadButton language={language} compact />
             <div className="flex bg-white/20 rounded-xl p-1 backdrop-blur-sm">
               {['ar', 'fr', 'en'].map(lang => (
                 <button
